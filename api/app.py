@@ -8,6 +8,11 @@ from pydantic import BaseModel
 from openai import OpenAI
 import os
 from typing import Optional
+import logging
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Initialize FastAPI application with a title
 app = FastAPI(title="OpenAI Chat API")
@@ -34,6 +39,8 @@ class ChatRequest(BaseModel):
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     try:
+        logger.info(f"Received request: {request}")
+        
         # Initialize OpenAI client with the provided API key
         client = OpenAI(api_key=request.api_key)
         
@@ -59,6 +66,7 @@ async def chat(request: ChatRequest):
     
     except Exception as e:
         # Handle any errors that occur during processing
+        logger.error(f"Error processing request: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
 
 # Define a health check endpoint to verify API status
