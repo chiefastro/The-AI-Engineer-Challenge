@@ -38,6 +38,23 @@ export const ChatInterface = () => {
     return () => clearInterval(interval);
   }, []);
 
+  // Add mouse tracking
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (animationContainerRef.current) {
+        const containerRect = animationContainerRef.current.getBoundingClientRect();
+        const relativeX = e.clientX - containerRect.left;
+        const minX = 50;
+        const maxX = containerRect.width - 150;
+        const clampedX = Math.max(minX, Math.min(maxX, relativeX));
+        setShipPosition(clampedX);
+      }
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
     console.log('API Key available:', !!apiKey);
@@ -140,32 +157,20 @@ export const ChatInterface = () => {
       const nextWord = pendingWords[0];
       console.log('Processing word:', nextWord, 'Completed words:', Array.from(completedWords));
       
-      const containerWidth = animationContainerRef.current?.clientWidth || 800;
-      
-      // Generate new position using normal distribution
-      const stdDev = containerWidth * 0.15; // 15% of container width as standard deviation
-      let newX = normalRandom(shipPosition, stdDev);
-      
-      // Clamp the position to container bounds with padding
-      const minX = 50;
-      const maxX = containerWidth - 150;
-      newX = Math.max(minX, Math.min(maxX, newX));
-      
       // Start moving the ship
       setIsShipMoving(true);
-      setShipPosition(newX);
       
       // Wait for ship to arrive (100ms transition + 17ms buffer)
       setTimeout(() => {
         setIsShipMoving(false);
-        // Add word to animation regardless of whether it's been seen before
+        // Add word to animation using current ship position
         console.log('Adding to animation:', nextWord);
         setWordAnimation(prev => [...prev, {
           word: nextWord,
           start: Date.now(),
           end: Date.now() + 250,
           progress: 0,
-          x: newX
+          x: shipPosition // Use current ship position instead of random position
         }]);
         
         // Add word to message after animation duration
