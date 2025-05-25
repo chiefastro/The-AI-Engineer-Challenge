@@ -4,9 +4,10 @@ interface SpaceshipProps {
   isMoving: boolean;
   position: number;
   style?: React.CSSProperties;
+  className?: string;
 }
 
-export const Spaceship = ({ isMoving, position, style }: SpaceshipProps) => {
+export const Spaceship = ({ isMoving, position, style, className }: SpaceshipProps) => {
   const shipRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -18,7 +19,7 @@ export const Spaceship = ({ isMoving, position, style }: SpaceshipProps) => {
   return (
     <div
       ref={shipRef}
-      className="absolute bottom-0 left-0"
+      className={`absolute bottom-0 left-0 ${className || ''}`}
       style={{ width: '48px', height: '48px', ...style }}
     >
       <svg

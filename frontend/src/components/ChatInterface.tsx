@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { Spaceship } from './Spaceship';
 
 interface Message {
@@ -6,26 +6,25 @@ interface Message {
   content: string;
 }
 
+// Box-Muller transform to generate normally distributed random numbers
+const normalRandom = (mean: number, stdDev: number): number => {
+  const u1 = Math.random();
+  const u2 = Math.random();
+  const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
+  return z0 * stdDev + mean;
+};
+
 export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [shipPosition, setShipPosition] = useState(0);
-  const [isShipMoving, setIsShipMoving] = useState(false);
-  const [pendingAssistantMessage, setPendingAssistantMessage] = useState<string | null>(null);
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
-  const [wordsQueue, setWordsQueue] = useState<string[]>([]);
-  const [animatingWord, setAnimatingWord] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
-  const [wordAnimation, setWordAnimation] = useState<{word: string, start: number, end: number, progress: number} | null>(null);
-  const measureRef = useRef<HTMLSpanElement>(null);
-  const [nextWordTargetX, setNextWordTargetX] = useState<number>(0);
-  const [readyToFire, setReadyToFire] = useState(false);
-  const [pendingWord, setPendingWord] = useState<string | null>(null);
-  const [currentWordIndex, setCurrentWordIndex] = useState(0);
-  const [shipReady, setShipReady] = useState(false);
-  const currentPositionRef = useRef<number>(0);
+  const [wordAnimation, setWordAnimation] = useState<{word: string, start: number, end: number, progress: number, x: number} | null>(null);
+  const [pendingWords, setPendingWords] = useState<string[]>([]);
+  const [shipPosition, setShipPosition] = useState(0);
+  const [isShipMoving, setIsShipMoving] = useState(false);
 
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
@@ -46,217 +45,74 @@ export const ChatInterface = () => {
     scrollToBottom();
   }, [messages]);
 
-  // When a new message is received, reset the word index
+  // Process pending words when current animation completes
   useEffect(() => {
-    if (isLoading && wordsQueue.length > 0 && currentWordIndex === 0) {
-      setCurrentWordIndex(0);
+    if (!wordAnimation && pendingWords.length > 0 && !isShipMoving) {
+      const nextWord = pendingWords[0];
+      const containerWidth = animationContainerRef.current?.clientWidth || 800;
+      
+      // Generate new position using normal distribution
+      const stdDev = containerWidth * 0.15; // 15% of container width as standard deviation
+      let newX = normalRandom(shipPosition, stdDev);
+      
+      // Clamp the position to container bounds with padding
+      const minX = 50;
+      const maxX = containerWidth - 150;
+      newX = Math.max(minX, Math.min(maxX, newX));
+      
+      // Start moving the ship
+      setIsShipMoving(true);
+      setShipPosition(newX);
+      
+      // Wait for ship to arrive (100ms transition + 17ms buffer)
+      setTimeout(() => {
+        setIsShipMoving(false);
+        setWordAnimation({
+          word: nextWord,
+          start: Date.now(),
+          end: Date.now() + 250,
+          progress: 0,
+          x: newX
+        });
+      }, 117);
+      
+      setPendingWords(prev => prev.slice(1));
     }
-  }, [isLoading, wordsQueue]);
-
-  // Measure the X position of the word at currentWordIndex
-  useLayoutEffect(() => {
-    if (measureRef.current && animationContainerRef.current) {
-      // Create a temporary container that matches the chat display exactly
-      const tempContainer = document.createElement('div');
-      tempContainer.style.visibility = 'hidden';
-      tempContainer.style.position = 'absolute';
-      tempContainer.style.whiteSpace = 'pre-wrap';
-      tempContainer.style.fontFamily = 'monospace';
-      tempContainer.style.fontSize = '1em';
-      tempContainer.style.width = animationContainerRef.current.clientWidth + 'px';
-      tempContainer.style.padding = '1rem';
-      tempContainer.style.border = '2px solid green';
-      tempContainer.style.borderRadius = '0.5rem';
-      
-      // Get the exact text that's being displayed
-      const displayedText = wordsQueue.slice(0, currentWordIndex + 1).join(' ');
-      tempContainer.textContent = displayedText;
-      
-      // Add to DOM temporarily to measure
-      document.body.appendChild(tempContainer);
-      
-      // Get the position of the last word
-      const range = document.createRange();
-      const textNode = tempContainer.firstChild;
-      if (!textNode) {
-        document.body.removeChild(tempContainer);
-        return;
-      }
-      
-      // Set range to the last word only
-      const words = displayedText.split(' ');
-      const lastWord = words[words.length - 1];
-      const lastWordStart = displayedText.length - lastWord.length;
-      range.setStart(textNode, lastWordStart);
-      range.setEnd(textNode, displayedText.length);
-      
-      const rects = Array.from(range.getClientRects());
-      if (rects.length === 0) {
-        document.body.removeChild(tempContainer);
-        return;
-      }
-      
-      // Get the last rectangle (for the last word)
-      const lastRect = rects[rects.length - 1];
-      
-      // Calculate the position relative to the chat container
-      const containerRect = animationContainerRef.current.getBoundingClientRect();
-      const wordWidth = lastRect.width;
-      
-      // Check if we're on a new line by comparing with previous word's position
-      let isNewLine = false;
-      if (currentWordIndex > 0) {
-        // Create a range for the previous word
-        const prevWord = words[words.length - 2];
-        const prevWordStart = lastWordStart - prevWord.length - 1; // -1 for the space
-        const prevRange = document.createRange();
-        prevRange.setStart(textNode, prevWordStart);
-        prevRange.setEnd(textNode, lastWordStart);
-        const prevRects = Array.from(prevRange.getClientRects());
-        if (prevRects.length > 0) {
-          const prevRect = prevRects[prevRects.length - 1];
-          isNewLine = Math.abs(lastRect.top - prevRect.top) > 1;
-        }
-      }
-      
-      // Calculate the base position for the next word
-      const baseX = isNewLine ? 
-        0 : // Reset to start of container on new line
-        lastRect.right - containerRect.left + (wordWidth / 2); // Use the end of the last word
-      
-      // Add a small padding between words
-      const wordSpacing = 8; // pixels between words
-      const adjustedX = baseX + wordSpacing;
-      
-      document.body.removeChild(tempContainer);
-
-      console.log('=== Detailed Position Measurement ===');
-      console.log('Displayed text:', displayedText);
-      console.log('Last word:', lastWord);
-      console.log('Container width:', animationContainerRef.current.clientWidth);
-      console.log('Number of rectangles:', rects.length);
-      console.log('Word width:', wordWidth);
-      console.log('Base position:', baseX);
-      console.log('Is new line:', isNewLine);
-      console.log('Word spacing:', wordSpacing);
-      console.log('Adjusted position:', adjustedX);
-      console.log('Current word index:', currentWordIndex);
-      console.log('Current ship position:', currentPositionRef.current);
-      console.log('========================');
-      
-      // Only update the target position if we're not currently animating
-      if (!animatingWord) {
-        setNextWordTargetX(adjustedX);
-      }
-    }
-  }, [displayedAssistantMessage, currentWordIndex, isLoading, wordsQueue, animatingWord]);
-
-  // When nextWordTargetX changes, update ship position
-  useEffect(() => {
-    if (
-      isLoading &&
-      wordsQueue.length > 0 &&
-      currentWordIndex < wordsQueue.length &&
-      !animatingWord
-    ) {
-      // Use the measured width directly as the new position
-      const newPosition = nextWordTargetX;
-      console.log('=== Ship Position Update ===');
-      console.log('Setting ship position to:', newPosition);
-      console.log('For current word:', wordsQueue[currentWordIndex]);
-      console.log('Current word index:', currentWordIndex);
-      console.log('Current ship position:', currentPositionRef.current);
-      console.log('========================');
-      
-      // Update position immediately
-      currentPositionRef.current = newPosition;
-      setShipPosition(newPosition);
-    }
-  }, [nextWordTargetX, isLoading, wordsQueue, currentWordIndex, animatingWord]);
-
-  // Start word animation after ship position is set
-  useEffect(() => {
-    if (
-      isLoading &&
-      wordsQueue.length > 0 &&
-      currentWordIndex < wordsQueue.length &&
-      !animatingWord &&
-      Math.abs(currentPositionRef.current - nextWordTargetX) < 1
-    ) {
-      console.log('=== Starting Animation ===');
-      console.log('Word:', wordsQueue[currentWordIndex]);
-      console.log('Position:', currentPositionRef.current);
-      console.log('Target position:', nextWordTargetX);
-      console.log('Current index:', currentWordIndex);
-      console.log('========================');
-      
-      // Set animating word first to prevent position updates during animation
-      setAnimatingWord(wordsQueue[currentWordIndex]);
-      
-      // For the first word, ensure we start from the far left
-      if (currentWordIndex === 0) {
-        setShipPosition(0);
-        currentPositionRef.current = 0;
-      }
-      
-      // Then start the animation
-      setWordAnimation({ 
-        word: wordsQueue[currentWordIndex], 
-        start: Date.now(), 
-        end: Date.now() + 750,
-        progress: 0 
-      });
-    }
-  }, [shipPosition, nextWordTargetX, isLoading, wordsQueue, currentWordIndex, animatingWord]);
+  }, [wordAnimation, pendingWords, isShipMoving, shipPosition]);
 
   // Animation frame for animating word
   useEffect(() => {
     if (!wordAnimation) return;
+    
     let raf: number;
     const animate = () => {
       const now = Date.now();
       const duration = wordAnimation.end - wordAnimation.start;
       const progress = Math.min((now - wordAnimation.start) / duration, 1);
       
-      // Log progress every 100ms
-      if (Math.floor(progress * 10) !== Math.floor((progress - 0.01) * 10)) {
-        console.log(`Animation progress: ${Math.floor(progress * 100)}% for word: ${wordAnimation.word} at position: ${currentPositionRef.current}`);
-      }
+      setWordAnimation(prev => prev ? { ...prev, progress } : null);
       
-      setWordAnimation((prev) => prev ? { ...prev, progress } : null);
       if (progress < 1) {
         raf = requestAnimationFrame(animate);
       } else {
-        console.log('=== Animation Complete ===');
-        console.log('Word:', wordAnimation.word);
-        console.log('Final position:', currentPositionRef.current);
-        console.log('========================');
-        setDisplayedAssistantMessage((prev) => prev + (prev ? ' ' : '') + wordAnimation.word);
-        setAnimatingWord(null);
+        setDisplayedAssistantMessage(prev => prev + (prev ? ' ' : '') + wordAnimation.word);
         setWordAnimation(null);
-        setCurrentWordIndex((prev) => prev + 1);
       }
     };
+    
     raf = requestAnimationFrame(animate);
     return () => cancelAnimationFrame(raf);
   }, [wordAnimation]);
 
-  // When all words are delivered, finalize the message and stop the ship
+  // When all words are delivered, finalize the message
   useEffect(() => {
-    if (
-      isLoading &&
-      displayedAssistantMessage &&
-      (currentWordIndex >= wordsQueue.length) &&
-      !animatingWord
-    ) {
+    if (isLoading && displayedAssistantMessage && !wordAnimation && pendingWords.length === 0) {
       setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
       setIsLoading(false);
-      setIsShipMoving(false);
       setDisplayedAssistantMessage('');
-      setPendingAssistantMessage(null);
-      setCurrentWordIndex(0);
+      setIsShipMoving(false);
     }
-  }, [isLoading, displayedAssistantMessage, wordsQueue, animatingWord, currentWordIndex]);
+  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -275,13 +131,10 @@ export const ChatInterface = () => {
     setInput('');
     setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
     setIsLoading(true);
-    setIsShipMoving(true);
     setDisplayedAssistantMessage('');
-    setPendingAssistantMessage(null);
-    setWordsQueue([]);
-    setAnimatingWord(null);
-    setShipPosition(0); // Reset ship position to far left
-    currentPositionRef.current = 0; // Reset the ref value as well
+    setPendingWords([]);
+    setShipPosition(0);
+    setIsShipMoving(false);
 
     const requestBody = {
       user_message: userMessage,
@@ -299,20 +152,31 @@ export const ChatInterface = () => {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        console.error('Error response:', errorData);
         throw new Error(`Network response was not ok: ${response.status}`);
       }
 
-      // Read the full response as text
-      const data = await response.text();
-      setPendingAssistantMessage(data);
-      setWordsQueue(data.match(/\b\w+\b/g) || []); // Split into words
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No reader available');
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const words = buffer.match(/\b\w+\b/g) || [];
+        
+        if (words.length > 0) {
+          setPendingWords(prev => [...prev, ...words]);
+          buffer = buffer.replace(/\b\w+\b/g, '');
+        }
+      }
     } catch (error) {
       console.error('Error:', error);
       setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong!' }]);
       setIsLoading(false);
-      setIsShipMoving(false);
     }
   };
 
@@ -334,23 +198,10 @@ export const ChatInterface = () => {
         ))}
         {/* Animated assistant message in progress */}
         {isLoading && (
-          <div className="mb-4 text-green-400" style={{ position: 'relative' }}>
+          <div className="mb-4 text-green-400">
             <div className="font-bold mb-1">&gt; AI</div>
-            <div className="whitespace-pre-wrap" style={{ display: 'inline' }}>
-              <span>{wordsQueue.slice(0, currentWordIndex).join(' ')}{currentWordIndex > 0 ? ' ' : ''}</span>
-              {/* Hidden span to measure the next word's landing position */}
-              <span 
-                ref={measureRef} 
-                style={{ 
-                  visibility: 'hidden', 
-                  position: 'absolute', 
-                  left: 0, 
-                  top: 0,
-                  border: '1px solid red' // Debug border
-                }}
-              >
-                {wordsQueue[currentWordIndex] || ''}
-              </span>
+            <div className="whitespace-pre-wrap">
+              {displayedAssistantMessage}
             </div>
           </div>
         )}
@@ -359,7 +210,7 @@ export const ChatInterface = () => {
           <span
             style={{
               position: 'absolute',
-              left: `${shipPosition}px`,
+              left: `${wordAnimation.x}px`,
               bottom: `${48 + (animationContainerRef.current.clientHeight - 100) * wordAnimation.progress}px`,
               transition: 'none',
               color: '#fff',
@@ -368,7 +219,7 @@ export const ChatInterface = () => {
               zIndex: 20,
               fontSize: '1em',
               textShadow: '0 0 4px #00f0ff',
-              border: '1px solid yellow' // Debug border
+              opacity: 1 - wordAnimation.progress
             }}
           >
             {wordAnimation.word}
@@ -376,18 +227,13 @@ export const ChatInterface = () => {
         )}
         <div ref={messagesEndRef} />
         <Spaceship 
-          isMoving={isShipMoving || !!wordAnimation} 
-          position={shipPosition} 
+          isMoving={isShipMoving || !!wordAnimation}
+          position={shipPosition}
           style={{
-            transition: 'transform 0.3s ease-out',
-            transform: `translateX(${shipPosition}px)`,
-            border: '1px solid blue' // Debug border
+            transition: 'transform 0.1s ease-out',
+            transform: `translateX(${shipPosition}px)`
           }}
         />
-      </div>
-      {/* Debug info */}
-      <div className="text-xs text-gray-500 mb-2">
-        Ship Position: {shipPosition}px | Next Target: {nextWordTargetX}px | Current Word: {currentWordIndex}
       </div>
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
