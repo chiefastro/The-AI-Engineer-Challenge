@@ -161,7 +161,19 @@ export const ChatInterface = () => {
         setTimeout(() => {
           setDisplayedAssistantMessage(prev => {
             const lastChar = prev.slice(-1);
-            const needsSpace = lastChar !== ' ' && nextWord !== ' ' && !/^[.,!?;:]$/.test(nextWord);
+            const nextChar = nextWord[0];
+            
+            // Add space if:
+            // 1. Previous char is not a space
+            // 2. Next word is not punctuation
+            // 3. Previous word doesn't end with a hyphen
+            // 4. Next word doesn't start with an apostrophe
+            const needsSpace = 
+              lastChar !== ' ' && 
+              !/^[.,!?;:]$/.test(nextWord) &&
+              lastChar !== '-' &&
+              nextChar !== "'";
+              
             return prev + (needsSpace ? ' ' : '') + nextWord;
           });
         }, 250);
