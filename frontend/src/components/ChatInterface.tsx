@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Spaceship } from './Spaceship';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   role: 'user' | 'assistant';
@@ -21,10 +22,11 @@ export const ChatInterface = () => {
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
-  const [wordAnimation, setWordAnimation] = useState<{word: string, start: number, end: number, progress: number, x: number} | null>(null);
+  const [wordAnimation, setWordAnimation] = useState<Array<{word: string, start: number, end: number, progress: number, x: number}>>([]);
   const [pendingWords, setPendingWords] = useState<string[]>([]);
   const [shipPosition, setShipPosition] = useState(0);
   const [isShipMoving, setIsShipMoving] = useState(false);
+  const [completedWords, setCompletedWords] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
@@ -44,75 +46,6 @@ export const ChatInterface = () => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-
-  // Process pending words when current animation completes
-  useEffect(() => {
-    if (!wordAnimation && pendingWords.length > 0 && !isShipMoving) {
-      const nextWord = pendingWords[0];
-      const containerWidth = animationContainerRef.current?.clientWidth || 800;
-      
-      // Generate new position using normal distribution
-      const stdDev = containerWidth * 0.15; // 15% of container width as standard deviation
-      let newX = normalRandom(shipPosition, stdDev);
-      
-      // Clamp the position to container bounds with padding
-      const minX = 50;
-      const maxX = containerWidth - 150;
-      newX = Math.max(minX, Math.min(maxX, newX));
-      
-      // Start moving the ship
-      setIsShipMoving(true);
-      setShipPosition(newX);
-      
-      // Wait for ship to arrive (100ms transition + 17ms buffer)
-      setTimeout(() => {
-        setIsShipMoving(false);
-        setWordAnimation({
-          word: nextWord,
-          start: Date.now(),
-          end: Date.now() + 250,
-          progress: 0,
-          x: newX
-        });
-      }, 117);
-      
-      setPendingWords(prev => prev.slice(1));
-    }
-  }, [wordAnimation, pendingWords, isShipMoving, shipPosition]);
-
-  // Animation frame for animating word
-  useEffect(() => {
-    if (!wordAnimation) return;
-    
-    let raf: number;
-    const animate = () => {
-      const now = Date.now();
-      const duration = wordAnimation.end - wordAnimation.start;
-      const progress = Math.min((now - wordAnimation.start) / duration, 1);
-      
-      setWordAnimation(prev => prev ? { ...prev, progress } : null);
-      
-      if (progress < 1) {
-        raf = requestAnimationFrame(animate);
-      } else {
-        setDisplayedAssistantMessage(prev => prev + (prev ? ' ' : '') + wordAnimation.word);
-        setWordAnimation(null);
-      }
-    };
-    
-    raf = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(raf);
-  }, [wordAnimation]);
-
-  // When all words are delivered, finalize the message
-  useEffect(() => {
-    if (isLoading && displayedAssistantMessage && !wordAnimation && pendingWords.length === 0) {
-      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
-      setIsLoading(false);
-      setDisplayedAssistantMessage('');
-      setIsShipMoving(false);
-    }
-  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -160,17 +93,27 @@ export const ChatInterface = () => {
 
       const decoder = new TextDecoder();
       let buffer = '';
+      let completeResponse = '';
 
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          console.log('Complete API response:', completeResponse);
+          break;
+        }
 
-        buffer += decoder.decode(value, { stream: true });
-        const words = buffer.match(/\b\w+\b/g) || [];
+        const chunk = decoder.decode(value, { stream: true });
+        completeResponse += chunk;
+        buffer += chunk;
+        
+        // Improved word splitting that captures all words and punctuation
+        const words = buffer.match(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g) || [];
         
         if (words.length > 0) {
+          // Add all words to pending queue, allowing repeats
           setPendingWords(prev => [...prev, ...words]);
-          buffer = buffer.replace(/\b\w+\b/g, '');
+          // Remove only the matched words, preserving any markdown syntax
+          buffer = buffer.replace(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g, '');
         }
       }
     } catch (error) {
@@ -179,6 +122,98 @@ export const ChatInterface = () => {
       setIsLoading(false);
     }
   };
+
+  // Process pending words when current animation completes
+  useEffect(() => {
+    if (pendingWords.length > 0 && !isShipMoving) {
+      const nextWord = pendingWords[0];
+      console.log('Processing word:', nextWord, 'Completed words:', Array.from(completedWords));
+      
+      const containerWidth = animationContainerRef.current?.clientWidth || 800;
+      
+      // Generate new position using normal distribution
+      const stdDev = containerWidth * 0.15; // 15% of container width as standard deviation
+      let newX = normalRandom(shipPosition, stdDev);
+      
+      // Clamp the position to container bounds with padding
+      const minX = 50;
+      const maxX = containerWidth - 150;
+      newX = Math.max(minX, Math.min(maxX, newX));
+      
+      // Start moving the ship
+      setIsShipMoving(true);
+      setShipPosition(newX);
+      
+      // Wait for ship to arrive (100ms transition + 17ms buffer)
+      setTimeout(() => {
+        setIsShipMoving(false);
+        // Add word to animation regardless of whether it's been seen before
+        console.log('Adding to animation:', nextWord);
+        setWordAnimation(prev => [...prev, {
+          word: nextWord,
+          start: Date.now(),
+          end: Date.now() + 250,
+          progress: 0,
+          x: newX
+        }]);
+        
+        // Add word to message after animation duration
+        setTimeout(() => {
+          setDisplayedAssistantMessage(prev => {
+            const lastChar = prev.slice(-1);
+            const needsSpace = lastChar !== ' ' && nextWord !== ' ' && !/^[.,!?;:]$/.test(nextWord);
+            return prev + (needsSpace ? ' ' : '') + nextWord;
+          });
+        }, 250);
+      }, 117);
+      
+      setPendingWords(prev => prev.slice(1));
+    }
+  }, [pendingWords, isShipMoving, shipPosition]);
+
+  // Animation frame for animating words
+  useEffect(() => {
+    if (wordAnimation.length === 0) return;
+    
+    let raf: number;
+    const animate = () => {
+      const now = Date.now();
+      
+      // Update progress for all animations
+      setWordAnimation(prev => {
+        const updated = prev.map(anim => {
+          const duration = anim.end - anim.start;
+          const progress = Math.min((now - anim.start) / duration, 1);
+          return { ...anim, progress };
+        });
+        
+        // Remove completed animations
+        return updated.filter(anim => anim.progress < 1);
+      });
+      
+      // Only continue animation if there are still words to animate
+      if (wordAnimation.length > 0) {
+        raf = requestAnimationFrame(animate);
+      }
+    };
+    
+    raf = requestAnimationFrame(animate);
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+  }, [wordAnimation]);
+
+  // When all words are delivered, finalize the message
+  useEffect(() => {
+    if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
+      console.log('Finalizing message:', displayedAssistantMessage);
+      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
+      setIsLoading(false);
+      setDisplayedAssistantMessage('');
+      setIsShipMoving(false);
+      setCompletedWords(new Set()); // Reset completed words
+    }
+  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
@@ -193,25 +228,28 @@ export const ChatInterface = () => {
             <div className="font-bold mb-1">
               {message.role === 'user' ? '> User' : '> AI'}
             </div>
-            <div className="whitespace-pre-wrap">{message.content}</div>
+            <div className="prose prose-invert max-w-none">
+              <ReactMarkdown>{message.content}</ReactMarkdown>
+            </div>
           </div>
         ))}
         {/* Animated assistant message in progress */}
         {isLoading && (
           <div className="mb-4 text-green-400">
             <div className="font-bold mb-1">&gt; AI</div>
-            <div className="whitespace-pre-wrap">
-              {displayedAssistantMessage}
+            <div className="prose prose-invert max-w-none">
+              <ReactMarkdown>{displayedAssistantMessage}</ReactMarkdown>
             </div>
           </div>
         )}
-        {/* Floating animating word */}
-        {wordAnimation && animationContainerRef.current && (
+        {/* Floating animating words */}
+        {wordAnimation.map((anim, index) => animationContainerRef.current && (
           <span
+            key={`${anim.word}-${index}`}
             style={{
               position: 'absolute',
-              left: `${wordAnimation.x}px`,
-              bottom: `${48 + (animationContainerRef.current.clientHeight - 100) * wordAnimation.progress}px`,
+              left: `${anim.x}px`,
+              bottom: `${48 + (animationContainerRef.current.clientHeight - 100) * anim.progress}px`,
               transition: 'none',
               color: '#fff',
               fontWeight: 'bold',
@@ -219,15 +257,15 @@ export const ChatInterface = () => {
               zIndex: 20,
               fontSize: '1em',
               textShadow: '0 0 4px #00f0ff',
-              opacity: 1 - wordAnimation.progress
+              opacity: 1 - anim.progress
             }}
           >
-            {wordAnimation.word}
+            {anim.word}
           </span>
-        )}
+        ))}
         <div ref={messagesEndRef} />
         <Spaceship 
-          isMoving={isShipMoving || !!wordAnimation}
+          isMoving={isShipMoving || !!wordAnimation.length}
           position={shipPosition}
           style={{
             transition: 'transform 0.1s ease-out',
