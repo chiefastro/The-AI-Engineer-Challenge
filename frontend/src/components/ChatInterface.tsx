@@ -29,6 +29,8 @@ export const ChatInterface = () => {
   const [isShipMoving, setIsShipMoving] = useState(false);
   const [completedWords, setCompletedWords] = useState<Set<string>>(new Set());
   const [showCursor, setShowCursor] = useState(true);
+  const [cursorPosition, setCursorPosition] = useState(0);
+  const inputContainerRef = useRef<HTMLDivElement>(null);
 
   // Cursor blink effect
   useEffect(() => {
@@ -76,6 +78,48 @@ export const ChatInterface = () => {
     scrollToBottom();
   }, [messages, displayedAssistantMessage, isLoading, input]);
 
+  // Handle click anywhere in chat window to focus input
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      if (animationContainerRef.current && !isLoading) {
+        const target = e.target as HTMLElement;
+        // Don't focus if clicking on a link or button
+        if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
+        
+        if (inputRef.current) {
+          inputRef.current.focus();
+          // If clicking on the input container, calculate cursor position
+          if (inputContainerRef.current?.contains(target)) {
+            const rect = inputContainerRef.current.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            // Approximate character position based on average character width
+            const charWidth = 8; // Approximate width of a character in pixels
+            const position = Math.round(x / charWidth);
+            setCursorPosition(Math.min(position, input.length));
+            inputRef.current.setSelectionRange(position, position);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('click', handleClick);
+    return () => window.removeEventListener('click', handleClick);
+  }, [isLoading, input.length]);
+
+  // Focus input on initial load and when messages change
+  useEffect(() => {
+    if (inputRef.current && !isLoading) {
+      inputRef.current.focus();
+    }
+  }, [isLoading]);
+
+  // Handle input changes and cursor position
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setInput(e.target.value);
+    setCursorPosition(e.target.selectionStart || 0);
+  };
+
+  // Handle key navigation
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -92,6 +136,7 @@ export const ChatInterface = () => {
 
       const userMessage = input.trim();
       setInput('');
+      setCursorPosition(0); // Reset cursor position when sending message
       setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
       setIsLoading(true);
       setDisplayedAssistantMessage('');
@@ -243,13 +288,6 @@ export const ChatInterface = () => {
     }
   }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
 
-  // Add effect to focus input when messages change
-  useEffect(() => {
-    if (inputRef.current && !isLoading) {
-      inputRef.current.focus();
-    }
-  }, [messages, isLoading]);
-
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
       <div className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" style={{ minHeight: 0 }}>
@@ -302,24 +340,25 @@ export const ChatInterface = () => {
           {/* Terminal input area */}
           <div className="mt-4">
             <div className="font-bold mb-1 text-blue-400">&gt; User</div>
-            <div className="relative">
+            <div className="relative" ref={inputContainerRef}>
               <input
                 ref={inputRef}
                 type="text"
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
+                onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart || 0)}
                 className="w-full bg-transparent text-blue-400 outline-none border-none p-0 font-mono"
                 disabled={isLoading}
                 style={{
-                  caretColor: showCursor ? 'transparent' : 'transparent',
+                  caretColor: 'transparent',
                 }}
               />
               {showCursor && (
                 <span 
-                  className="absolute left-0 top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse"
+                  className="absolute top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse"
                   style={{ 
-                    left: `${input.length * 0.6}em`,
+                    left: `${cursorPosition * 0.6}em`,
                     transform: 'translateX(-50%)'
                   }}
                 />
