@@ -183,7 +183,7 @@ export const ChatInterface = () => {
       
       setPendingWords(prev => prev.slice(1));
     }
-  }, [pendingWords, isShipMoving, shipPosition]);
+  }, [pendingWords, isShipMoving, shipPosition, completedWords]);
 
   // Animation frame for animating words
   useEffect(() => {
