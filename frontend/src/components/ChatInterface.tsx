@@ -22,11 +22,21 @@ export const ChatInterface = () => {
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
   const [wordAnimation, setWordAnimation] = useState<Array<{word: string, start: number, end: number, progress: number, x: number}>>([]);
   const [pendingWords, setPendingWords] = useState<string[]>([]);
-  const [shipPosition, setShipPosition] = useState(0);
+  const [shipPosition, setShipPosition] = useState(400);
   const [isShipMoving, setIsShipMoving] = useState(false);
   const [completedWords, setCompletedWords] = useState<Set<string>>(new Set());
+  const [showCursor, setShowCursor] = useState(true);
+
+  // Cursor blink effect
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setShowCursor(prev => !prev);
+    }, 530);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
@@ -47,81 +57,80 @@ export const ChatInterface = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, displayedAssistantMessage, isLoading]);
+  }, [messages, displayedAssistantMessage, isLoading, input]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading) return;
+  const handleKeyDown = async (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      if (!input.trim() || isLoading) return;
 
-    const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-    if (!apiKey) {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: 'Error: OpenAI API key is not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file.'
-      }]);
-      return;
-    }
-
-    const userMessage = input.trim();
-    setInput('');
-    setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-    setIsLoading(true);
-    setDisplayedAssistantMessage('');
-    setPendingWords([]);
-    setShipPosition(0);
-    setIsShipMoving(false);
-
-    const requestBody = {
-      user_message: userMessage,
-      developer_message: "You are a helpful AI assistant.",
-      api_key: apiKey,
-    };
-
-    try {
-      const response = await fetch('http://localhost:8000/api/chat', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        throw new Error(`Network response was not ok: ${response.status}`);
+      const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
+      if (!apiKey) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'Error: OpenAI API key is not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file.'
+        }]);
+        return;
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No reader available');
+      const userMessage = input.trim();
+      setInput('');
+      setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
+      setIsLoading(true);
+      setDisplayedAssistantMessage('');
+      setPendingWords([]);
+      setShipPosition(400);
+      setIsShipMoving(false);
 
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let completeResponse = '';
+      const requestBody = {
+        user_message: userMessage,
+        developer_message: "You are a helpful AI assistant.",
+        api_key: apiKey,
+      };
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) {
-          console.log('Complete API response:', completeResponse);
-          break;
+      try {
+        const response = await fetch('http://localhost:8000/api/chat', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Network response was not ok: ${response.status}`);
         }
 
-        const chunk = decoder.decode(value, { stream: true });
-        completeResponse += chunk;
-        buffer += chunk;
-        
-        // Improved word splitting that captures all words and punctuation
-        const words = buffer.match(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g) || [];
-        
-        if (words.length > 0) {
-          // Add all words to pending queue, allowing repeats
-          setPendingWords(prev => [...prev, ...words]);
-          // Remove only the matched words, preserving any markdown syntax
-          buffer = buffer.replace(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g, '');
+        const reader = response.body?.getReader();
+        if (!reader) throw new Error('No reader available');
+
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let completeResponse = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            console.log('Complete API response:', completeResponse);
+            break;
+          }
+
+          const chunk = decoder.decode(value, { stream: true });
+          completeResponse += chunk;
+          buffer += chunk;
+          
+          const words = buffer.match(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g) || [];
+          
+          if (words.length > 0) {
+            setPendingWords(prev => [...prev, ...words]);
+            buffer = buffer.replace(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g, '');
+          }
         }
+      } catch (error) {
+        console.error('Error:', error);
+        setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong!' }]);
+        setIsLoading(false);
       }
-    } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong!' }]);
-      setIsLoading(false);
     }
   };
 
@@ -229,6 +238,13 @@ export const ChatInterface = () => {
     }
   }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
 
+  // Add effect to focus input when messages change
+  useEffect(() => {
+    if (inputRef.current && !isLoading) {
+      inputRef.current.focus();
+    }
+  }, [messages, isLoading]);
+
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
       <div className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" style={{ minHeight: 0 }}>
@@ -278,37 +294,47 @@ export const ChatInterface = () => {
               {anim.word}
             </span>
           ))}
+          {/* Terminal input area */}
+          <div className="mt-4">
+            <div className="font-bold mb-1 text-blue-400">&gt; User</div>
+            <div className="relative">
+              <input
+                ref={inputRef}
+                type="text"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                className="w-full bg-transparent text-blue-400 outline-none border-none p-0 font-mono"
+                disabled={isLoading}
+                style={{
+                  caretColor: showCursor ? 'transparent' : 'transparent',
+                }}
+              />
+              {showCursor && (
+                <span 
+                  className="absolute left-0 top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse"
+                  style={{ 
+                    left: `${input.length * 0.6}em`,
+                    transform: 'translateX(-50%)'
+                  }}
+                />
+              )}
+            </div>
+          </div>
         </div>
         <div ref={messagesEndRef} />
+        {/* Spaceship Launchpad - moved inside the green box */}
+        <div className="relative flex items-center justify-center mt-4" style={{ height: '80px' }}>
+          <Spaceship
+            isMoving={isShipMoving || !!wordAnimation.length}
+            position={shipPosition}
+            style={{
+              transition: 'transform 0.1s ease-out',
+              transform: `translateX(${shipPosition}px)`
+            }}
+          />
+        </div>
       </div>
-      {/* Spaceship Launchpad */}
-      <div className="relative flex items-center justify-center" style={{ height: '80px' }}>
-        <Spaceship
-          isMoving={isShipMoving || !!wordAnimation.length}
-          position={shipPosition}
-          style={{
-            transition: 'transform 0.1s ease-out',
-            transform: `translateX(${shipPosition}px)`
-          }}
-        />
-      </div>
-      <form onSubmit={handleSubmit} className="flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          className="flex-1 bg-black text-green-400 border-2 border-green-400 rounded-lg p-2 focus:outline-none focus:border-green-500"
-          placeholder="Type your message..."
-          disabled={isLoading}
-        />
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="bg-green-400 text-black px-4 py-2 rounded-lg hover:bg-green-500 disabled:opacity-50"
-        >
-          {isLoading ? 'Sending...' : 'Send'}
-        </button>
-      </form>
     </div>
   );
 }; 
