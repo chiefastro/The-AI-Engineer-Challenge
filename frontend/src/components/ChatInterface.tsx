@@ -231,7 +231,7 @@ export const ChatInterface = () => {
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
-      <div className="relative flex flex-col flex-1 mb-4 border-2 border-green-400 rounded-lg p-4" style={{ minHeight: 0 }}>
+      <div className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" style={{ minHeight: 0 }}>
         <div className="flex-1 overflow-y-auto" ref={animationContainerRef}>
           {messages.map((message, index) => (
             <div
@@ -280,16 +280,17 @@ export const ChatInterface = () => {
           ))}
         </div>
         <div ref={messagesEndRef} />
-        <div className="absolute left-0 right-0 bottom-0 pointer-events-none" style={{ height: '100px' }}>
-          <Spaceship 
-            isMoving={isShipMoving || !!wordAnimation.length}
-            position={shipPosition}
-            style={{
-              transition: 'transform 0.1s ease-out',
-              transform: `translateX(${shipPosition}px)`
-            }}
-          />
-        </div>
+      </div>
+      {/* Spaceship Launchpad */}
+      <div className="relative flex items-center justify-center" style={{ height: '80px' }}>
+        <Spaceship
+          isMoving={isShipMoving || !!wordAnimation.length}
+          position={shipPosition}
+          style={{
+            transition: 'transform 0.1s ease-out',
+            transform: `translateX(${shipPosition}px)`
+          }}
+        />
       </div>
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
