@@ -83,8 +83,12 @@ export const ChatInterface = () => {
         return;
       }
       
-      range.setStart(textNode, 0);
-      range.setEnd(textNode, textNode.textContent?.length || 0);
+      // Set range to the last word only
+      const words = displayedText.split(' ');
+      const lastWord = words[words.length - 1];
+      const lastWordStart = displayedText.length - lastWord.length;
+      range.setStart(textNode, lastWordStart);
+      range.setEnd(textNode, displayedText.length);
       
       const rects = Array.from(range.getClientRects());
       if (rects.length === 0) {
@@ -97,27 +101,44 @@ export const ChatInterface = () => {
       
       // Calculate the position relative to the chat container
       const containerRect = animationContainerRef.current.getBoundingClientRect();
-      const relativeX = lastRect.right - containerRect.left;
+      const wordWidth = lastRect.width;
       
-      // Check if we're on a new line by comparing top positions
-      const isNewLine = rects.length > 1 && 
-        Math.abs(rects[rects.length - 1].top - rects[rects.length - 2].top) > 1;
+      // Check if we're on a new line by comparing with previous word's position
+      let isNewLine = false;
+      if (currentWordIndex > 0) {
+        // Create a range for the previous word
+        const prevWord = words[words.length - 2];
+        const prevWordStart = lastWordStart - prevWord.length - 1; // -1 for the space
+        const prevRange = document.createRange();
+        prevRange.setStart(textNode, prevWordStart);
+        prevRange.setEnd(textNode, lastWordStart);
+        const prevRects = Array.from(prevRange.getClientRects());
+        if (prevRects.length > 0) {
+          const prevRect = prevRects[prevRects.length - 1];
+          isNewLine = Math.abs(lastRect.top - prevRect.top) > 1;
+        }
+      }
       
-      // Add a fixed offset for each word to compensate for accumulated error
-      const fixedOffset = 8; // pixels per word
-      const adjustedX = isNewLine ? 
-        relativeX : // Reset to base position on new line
-        relativeX + (currentWordIndex * fixedOffset);
+      // Calculate the base position for the next word
+      const baseX = isNewLine ? 
+        0 : // Reset to start of container on new line
+        lastRect.right - containerRect.left + (wordWidth / 2); // Use the end of the last word
+      
+      // Add a small padding between words
+      const wordSpacing = 8; // pixels between words
+      const adjustedX = baseX + wordSpacing;
       
       document.body.removeChild(tempContainer);
 
       console.log('=== Detailed Position Measurement ===');
       console.log('Displayed text:', displayedText);
+      console.log('Last word:', lastWord);
       console.log('Container width:', animationContainerRef.current.clientWidth);
       console.log('Number of rectangles:', rects.length);
-      console.log('Last word position:', relativeX);
+      console.log('Word width:', wordWidth);
+      console.log('Base position:', baseX);
       console.log('Is new line:', isNewLine);
-      console.log('Fixed offset:', fixedOffset);
+      console.log('Word spacing:', wordSpacing);
       console.log('Adjusted position:', adjustedX);
       console.log('Current word index:', currentWordIndex);
       console.log('Current ship position:', currentPositionRef.current);
@@ -171,6 +192,12 @@ export const ChatInterface = () => {
       
       // Set animating word first to prevent position updates during animation
       setAnimatingWord(wordsQueue[currentWordIndex]);
+      
+      // For the first word, ensure we start from the far left
+      if (currentWordIndex === 0) {
+        setShipPosition(0);
+        currentPositionRef.current = 0;
+      }
       
       // Then start the animation
       setWordAnimation({ 
@@ -253,6 +280,8 @@ export const ChatInterface = () => {
     setPendingAssistantMessage(null);
     setWordsQueue([]);
     setAnimatingWord(null);
+    setShipPosition(0); // Reset ship position to far left
+    currentPositionRef.current = 0; // Reset the ref value as well
 
     const requestBody = {
       user_message: userMessage,
@@ -337,7 +366,7 @@ export const ChatInterface = () => {
               fontWeight: 'bold',
               pointerEvents: 'none',
               zIndex: 20,
-              fontSize: '1.2em',
+              fontSize: '1em',
               textShadow: '0 0 4px #00f0ff',
               border: '1px solid yellow' // Debug border
             }}
