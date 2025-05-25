@@ -40,12 +40,14 @@ export const ChatInterface = () => {
   }, []);
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (animationContainerRef.current) {
+      animationContainerRef.current.scrollTop = animationContainerRef.current.scrollHeight;
+    }
   };
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, displayedAssistantMessage, isLoading]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -229,61 +231,65 @@ export const ChatInterface = () => {
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
-      <div className="flex-1 overflow-y-auto mb-4 border-2 border-green-400 rounded-lg p-4 relative" ref={animationContainerRef}>
-        {messages.map((message, index) => (
-          <div
-            key={index}
-            className={`mb-4 ${
-              message.role === 'user' ? 'text-blue-400' : 'text-green-400'
-            }`}
-          >
-            <div className="font-bold mb-1">
-              {message.role === 'user' ? '> User' : '> AI'}
+      <div className="relative flex flex-col flex-1 mb-4 border-2 border-green-400 rounded-lg p-4" style={{ minHeight: 0 }}>
+        <div className="flex-1 overflow-y-auto" ref={animationContainerRef}>
+          {messages.map((message, index) => (
+            <div
+              key={index}
+              className={`mb-4 ${
+                message.role === 'user' ? 'text-blue-400' : 'text-green-400'
+              }`}
+            >
+              <div className="font-bold mb-1">
+                {message.role === 'user' ? '> User' : '> AI'}
+              </div>
+              <div className="prose prose-invert max-w-none">
+                <ReactMarkdown>{message.content}</ReactMarkdown>
+              </div>
             </div>
-            <div className="prose prose-invert max-w-none">
-              <ReactMarkdown>{message.content}</ReactMarkdown>
+          ))}
+          {/* Animated assistant message in progress */}
+          {isLoading && (
+            <div className="mb-4 text-green-400">
+              <div className="font-bold mb-1">&gt; AI</div>
+              <div className="prose prose-invert max-w-none">
+                <ReactMarkdown>{displayedAssistantMessage}</ReactMarkdown>
+              </div>
             </div>
-          </div>
-        ))}
-        {/* Animated assistant message in progress */}
-        {isLoading && (
-          <div className="mb-4 text-green-400">
-            <div className="font-bold mb-1">&gt; AI</div>
-            <div className="prose prose-invert max-w-none">
-              <ReactMarkdown>{displayedAssistantMessage}</ReactMarkdown>
-            </div>
-          </div>
-        )}
-        {/* Floating animating words */}
-        {wordAnimation.map((anim, index) => animationContainerRef.current && (
-          <span
-            key={`${anim.word}-${index}`}
-            style={{
-              position: 'absolute',
-              left: `${anim.x}px`,
-              bottom: `${48 + (animationContainerRef.current.clientHeight - 100) * anim.progress}px`,
-              transition: 'none',
-              color: '#fff',
-              fontWeight: 'bold',
-              pointerEvents: 'none',
-              zIndex: 20,
-              fontSize: '1em',
-              textShadow: '0 0 4px #00f0ff',
-              opacity: 1 - anim.progress
-            }}
-          >
-            {anim.word}
-          </span>
-        ))}
+          )}
+          {/* Floating animating words */}
+          {wordAnimation.map((anim, index) => animationContainerRef.current && (
+            <span
+              key={`${anim.word}-${index}`}
+              style={{
+                position: 'absolute',
+                left: `${anim.x}px`,
+                bottom: `${48 + (animationContainerRef.current.clientHeight - 100) * anim.progress}px`,
+                transition: 'none',
+                color: '#fff',
+                fontWeight: 'bold',
+                pointerEvents: 'none',
+                zIndex: 20,
+                fontSize: '1em',
+                textShadow: '0 0 4px #00f0ff',
+                opacity: 1 - anim.progress
+              }}
+            >
+              {anim.word}
+            </span>
+          ))}
+        </div>
         <div ref={messagesEndRef} />
-        <Spaceship 
-          isMoving={isShipMoving || !!wordAnimation.length}
-          position={shipPosition}
-          style={{
-            transition: 'transform 0.1s ease-out',
-            transform: `translateX(${shipPosition}px)`
-          }}
-        />
+        <div className="absolute left-0 right-0 bottom-0 pointer-events-none" style={{ height: '100px' }}>
+          <Spaceship 
+            isMoving={isShipMoving || !!wordAnimation.length}
+            position={shipPosition}
+            style={{
+              transition: 'transform 0.1s ease-out',
+              transform: `translateX(${shipPosition}px)`
+            }}
+          />
+        </div>
       </div>
       <form onSubmit={handleSubmit} className="flex gap-2">
         <input
