@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown';
 interface Message {
   role: 'user' | 'assistant';
   content: string;
+  hitWords?: Set<string>;
 }
 
 interface WordAnimation {
@@ -26,21 +27,14 @@ interface Missile {
   progress: number;
 }
 
-// Box-Muller transform to generate normally distributed random numbers
-const normalRandom = (mean: number, stdDev: number): number => {
-  const u1 = Math.random();
-  const u2 = Math.random();
-  const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-  return z0 * stdDev + mean;
-};
 
 // Add this new component for rendering messages with attacking words
-const MessageContent = ({ content, attackingWords, hitWords }: { content: string, attackingWords: Set<string>, hitWords: Set<string> }) => {
+const MessageContent = ({ content, attackingWords, hitWords }: { content: string, attackingWords: Set<string>, hitWords?: Set<string> }) => {
   const words = content.split(/\s+/);
   
   const elements = words.map((word, i) => {
     const isAttacking = attackingWords.has(word);
-    const isHit = hitWords.has(word);
+    const isHit = hitWords?.has(word) || false;
     
     return (
       <span 
@@ -90,7 +84,6 @@ export const ChatInterface = () => {
   const [nextMissileId, setNextMissileId] = useState(0);
   const [explodingWords, setExplodingWords] = useState<Set<string>>(new Set());
   const [attackingWords, setAttackingWords] = useState<Set<string>>(new Set());
-  const [hitWords, setHitWords] = useState<Set<string>>(new Set());
   const [displayedWordPositions, setDisplayedWordPositions] = useState<Map<string, { x: number, y: number, width: number }>>(new Map());
 
   // Cursor blink effect
@@ -204,7 +197,6 @@ export const ChatInterface = () => {
       setPendingWords([]);
       setShipPosition(400);
       setIsShipMoving(false);
-      setHitWords(new Set()); // Reset hit words for new message
 
       const requestBody = {
         user_message: userMessage,
@@ -318,6 +310,8 @@ export const ChatInterface = () => {
         // Start attack interval
         const interval = setInterval(() => {
           // Pick a random word from the last assistant message, excluding hit words
+          const lastMessage = messages[messages.length - 1];
+          const hitWords = lastMessage?.hitWords || new Set();
           const words = lastAssistantMessage.split(/\s+/)
             .filter(word => !hitWords.has(word) && word.trim() !== ''); // Only exclude hit words and empty strings
           
@@ -356,7 +350,7 @@ export const ChatInterface = () => {
         clearInterval(attackInterval);
       }
     };
-  }, [isLoading, messages, wordAnimation, pendingWords, hitWords]);
+  }, [isLoading, messages, wordAnimation, pendingWords]);
 
   // Reset ship explosion after animation
   useEffect(() => {
@@ -460,8 +454,15 @@ export const ChatInterface = () => {
             const isWithinWordHeight = Math.abs(missileY - pos.y) < tolerance;
             
             if (isWithinWordWidth && isWithinWordHeight) {
-              // Add to hitWords for all words, but only add to explodingWords for attacking words
-              setHitWords(prev => new Set([...prev, word]));
+              // Update hitWords for the current message
+              setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMessage = newMessages[newMessages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  lastMessage.hitWords = new Set([...(lastMessage.hitWords || []), word]);
+                }
+                return newMessages;
+              });
               if (attackingWords.has(word)) {
                 setExplodingWords(prev => new Set([...prev, word]));
                 hasCollision = true;
@@ -507,7 +508,15 @@ export const ChatInterface = () => {
 
             if (missileCollision) {
               setExplodingWords(prev => new Set([...prev, anim.word]));
-              setHitWords(prev => new Set([...prev, anim.word]));
+              // Update hitWords for the current message
+              setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMessage = newMessages[newMessages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  lastMessage.hitWords = new Set([...(lastMessage.hitWords || []), anim.word]);
+                }
+                return newMessages;
+              });
               return { 
                 ...anim, 
                 state: 'exploding' as const, 
@@ -548,7 +557,15 @@ export const ChatInterface = () => {
                 newSet.delete(anim.word);
                 return newSet;
               });
-              setHitWords(prev => new Set([...prev, anim.word]));
+              // Update hitWords for the current message
+              setMessages(prev => {
+                const newMessages = [...prev];
+                const lastMessage = newMessages[newMessages.length - 1];
+                if (lastMessage && lastMessage.role === 'assistant') {
+                  lastMessage.hitWords = new Set([...(lastMessage.hitWords || []), anim.word]);
+                }
+                return newMessages;
+              });
               return { 
                 ...anim, 
                 state: 'exploding' as const, 
@@ -638,7 +655,7 @@ export const ChatInterface = () => {
               </div>
               <div className="prose prose-invert max-w-none">
                 {message.role === 'assistant' ? (
-                  <MessageContent content={message.content} attackingWords={attackingWords} hitWords={hitWords} />
+                  <MessageContent content={message.content} attackingWords={attackingWords} hitWords={message.hitWords} />
                 ) : (
                   <ReactMarkdown>{message.content}</ReactMarkdown>
                 )}
@@ -650,7 +667,7 @@ export const ChatInterface = () => {
             <div className="mb-4 text-green-400">
               <div className="font-bold mb-1">&gt; AI</div>
               <div className="prose prose-invert max-w-none">
-                <MessageContent content={displayedAssistantMessage} attackingWords={attackingWords} hitWords={hitWords} />
+                <MessageContent content={displayedAssistantMessage} attackingWords={attackingWords} hitWords={new Set()} />
               </div>
             </div>
           )}
