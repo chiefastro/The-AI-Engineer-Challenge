@@ -6,6 +6,7 @@ interface Message {
   role: 'user' | 'assistant';
   content: string;
   hitWords?: Set<string>;
+  hitWordIds?: Set<string>;
 }
 
 interface WordAnimation {
@@ -17,6 +18,7 @@ interface WordAnimation {
   state: 'floating' | 'attacking' | 'returning' | 'exploding';
   targetX?: number;
   targetY?: number;
+  wordId?: string;
 }
 
 interface Missile {
@@ -29,16 +31,23 @@ interface Missile {
 
 
 // Add this new component for rendering messages with attacking words
-const MessageContent = ({ content, attackingWords, hitWords }: { content: string, attackingWords: Set<string>, hitWords?: Set<string> }) => {
+const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: { 
+  content: string, 
+  attackingWords: Set<string>, 
+  hitWordIds?: Set<string>,
+  messageIndex: number 
+}) => {
   const words = content.split(/\s+/);
   
   const elements = words.map((word, i) => {
-    const isAttacking = attackingWords.has(word);
-    const isHit = hitWords?.has(word) || false;
+    const wordId = `${messageIndex}-${i}-${word}`;
+    const isAttacking = attackingWords.has(wordId);
+    const isHit = hitWordIds?.has(wordId) || false;
     
     return (
       <span 
-        key={i} 
+        key={wordId}
+        data-word-id={wordId}
         className={`word ${isAttacking ? 'attacking' : ''} ${isHit ? 'hit' : ''}`}
         style={{ 
           color: isAttacking ? 'black' : isHit ? 'black' : 'inherit',
@@ -79,12 +88,12 @@ export const ChatInterface = () => {
   const [cursorPosition, setCursorPosition] = useState(0);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const [isShipExploding, setIsShipExploding] = useState(false);
-  const [attackInterval, setAttackInterval] = useState<NodeJS.Timeout | null>(null);
+  const attackIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [missiles, setMissiles] = useState<Missile[]>([]);
   const [nextMissileId, setNextMissileId] = useState(0);
   const [explodingWords, setExplodingWords] = useState<Set<string>>(new Set());
   const [attackingWords, setAttackingWords] = useState<Set<string>>(new Set());
-  const [displayedWordPositions, setDisplayedWordPositions] = useState<Map<string, { x: number, y: number, width: number }>>(new Map());
+  const [displayedWordPositions, setDisplayedWordPositions] = useState<Map<string, { x: number, y: number, width: number, word: string }>>(new Map());
 
   // Cursor blink effect
   useEffect(() => {
@@ -197,6 +206,9 @@ export const ChatInterface = () => {
       setPendingWords([]);
       setShipPosition(400);
       setIsShipMoving(false);
+      setMissiles([]); // Clear any existing missiles
+      setWordAnimation([]); // Clear any existing word animations
+      setAttackingWords(new Set()); // Clear any attacking words
 
       const requestBody = {
         user_message: userMessage,
@@ -299,88 +311,16 @@ export const ChatInterface = () => {
     }
   }, [pendingWords, isShipMoving, shipPosition, completedWords]);
 
-  // Start attack interval when message is complete
-  useEffect(() => {
-    if (!isLoading && messages.length > 0 && wordAnimation.length === 0 && pendingWords.length === 0) {
-      // Get the last assistant message
-      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')?.content;
-      
-      if (lastAssistantMessage) {
-        console.log('Starting attack interval with message:', lastAssistantMessage);
-        // Start attack interval
-        const interval = setInterval(() => {
-          // Pick a random word from the last assistant message, excluding hit words
-          const lastMessage = messages[messages.length - 1];
-          const hitWords = lastMessage?.hitWords || new Set();
-          const words = lastAssistantMessage.split(/\s+/)
-            .filter(word => !hitWords.has(word) && word.trim() !== ''); // Only exclude hit words and empty strings
-          
-          if (words.length > 0) {
-            const randomWord = words[Math.floor(Math.random() * words.length)];
-            // Create a fixed attack pattern
-            const containerWidth = animationContainerRef.current?.clientWidth || 800;
-            const attackPositions = [
-              containerWidth * 0.25,  // Left
-              containerWidth * 0.5,   // Center
-              containerWidth * 0.75   // Right
-            ];
-            const randomX = attackPositions[Math.floor(Math.random() * attackPositions.length)];
-            
-            console.log('Attacking with word:', randomWord);
-            setAttackingWords(prev => new Set([...prev, randomWord]));
-            setWordAnimation(prev => [...prev, {
-              word: randomWord,
-              start: Date.now(),
-              end: Date.now() + 2000, // Slower animation (2 seconds)
-              progress: 0,
-              x: randomX,
-              state: 'attacking' as const,
-              targetX: randomX // Keep the same X position
-            }]);
-          }
-        }, 1500); // Attack every 1.5 seconds
-        
-        setAttackInterval(interval);
-      }
-    }
-    
-    return () => {
-      if (attackInterval) {
-        console.log('Clearing attack interval');
-        clearInterval(attackInterval);
-      }
-    };
-  }, [isLoading, messages, wordAnimation, pendingWords]);
-
-  // Reset ship explosion after animation
-  useEffect(() => {
-    if (isShipExploding) {
-      const timer = setTimeout(() => {
-        setIsShipExploding(false);
-      }, 1000);
-      return () => clearTimeout(timer);
-    }
-  }, [isShipExploding]);
-
-  // When all words are delivered, finalize the message
-  useEffect(() => {
-    if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
-      console.log('Finalizing message:', displayedAssistantMessage);
-      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
-      setIsLoading(false);
-      setDisplayedAssistantMessage('');
-      setIsShipMoving(false);
-      setCompletedWords(new Set()); // Reset completed words
-    }
-  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
-
   // Add click handler for shooting missiles
   const handleContainerClick = (e: React.MouseEvent) => {
-    if (isLoading) return;
+    if (isLoading || isShipExploding) return;
     
     // Don't shoot if clicking on input or links
     const target = e.target as HTMLElement;
     if (target.tagName === 'INPUT' || target.tagName === 'A' || target.tagName === 'BUTTON') return;
+    
+    // Don't shoot if clicking on a word
+    if (target.classList.contains('word')) return;
 
     // Create new missile at ship position, centered on the ship
     const newMissile: Missile = {
@@ -400,24 +340,127 @@ export const ChatInterface = () => {
     }
   };
 
+  // When all words are delivered, finalize the message
+  useEffect(() => {
+    if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
+      console.log('Finalizing message:', displayedAssistantMessage);
+      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
+      setIsLoading(false);
+      setDisplayedAssistantMessage('');
+      setIsShipMoving(false);
+      setCompletedWords(new Set()); // Reset completed words
+      
+      // Clear any existing interval
+      if (attackIntervalRef.current) {
+        clearInterval(attackIntervalRef.current);
+        attackIntervalRef.current = null;
+      }
+    }
+  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
+
+  // Start attack interval when message is complete
+  useEffect(() => {
+    if (!isLoading && messages.length > 0) {
+      // Get the last assistant message
+      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')?.content;
+      
+      if (lastAssistantMessage) {
+        // Clear any existing interval
+        if (attackIntervalRef.current) {
+          console.log('Clearing existing attack interval');
+          clearInterval(attackIntervalRef.current);
+        }
+        
+        console.log('Starting attack interval with message:', lastAssistantMessage);
+        // Start attack interval
+        const interval = setInterval(() => {
+          // Get the last message to check hit words
+          const lastMessage = messages[messages.length - 1];
+          const hitWordIds = lastMessage?.hitWordIds || new Set();
+          
+          // Create an array of all word instances with their IDs
+          const wordInstances: { word: string, id: string }[] = [];
+          const words = lastAssistantMessage.split(/\s+/);
+          words.forEach((word, index) => {
+            if (word.trim() !== '') {
+              const wordId = `${messages.length - 1}-${index}-${word}`;
+              if (!hitWordIds.has(wordId)) {
+                wordInstances.push({ word, id: wordId });
+              }
+            }
+          });
+          
+          if (wordInstances.length > 0) {
+            // Pick a random word instance
+            const randomInstance = wordInstances[Math.floor(Math.random() * wordInstances.length)];
+            
+            // Create a fixed attack pattern
+            const containerWidth = animationContainerRef.current?.clientWidth || 800;
+            const attackPositions = [
+              containerWidth * 0.25,  // Left
+              containerWidth * 0.5,   // Center
+              containerWidth * 0.75   // Right
+            ];
+            const randomX = attackPositions[Math.floor(Math.random() * attackPositions.length)];
+            
+            console.log('Attacking with word:', randomInstance.word, 'ID:', randomInstance.id);
+            setAttackingWords(prev => new Set([...prev, randomInstance.id]));
+            setWordAnimation(prev => [...prev, {
+              word: randomInstance.word,
+              start: Date.now(),
+              end: Date.now() + 2000, // Slower animation (2 seconds)
+              progress: 0,
+              x: randomX,
+              state: 'attacking' as const,
+              targetX: randomX, // Keep the same X position
+              wordId: randomInstance.id // Track the specific instance
+            }]);
+          }
+        }, 1500); // Attack every 1.5 seconds
+        
+        attackIntervalRef.current = interval;
+      }
+    }
+    
+    return () => {
+      if (attackIntervalRef.current) {
+        console.log('Clearing attack interval');
+        clearInterval(attackIntervalRef.current);
+        attackIntervalRef.current = null;
+      }
+    };
+  }, [isLoading, messages]);
+
+  // Reset ship explosion after animation
+  useEffect(() => {
+    if (isShipExploding) {
+      const timer = setTimeout(() => {
+        setIsShipExploding(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isShipExploding]);
+
   // Add this effect to track word positions
   useEffect(() => {
     if (animationContainerRef.current) {
       const wordElements = animationContainerRef.current.querySelectorAll('.word');
-      const newPositions = new Map<string, { x: number, y: number, width: number }>();
+      const newPositions = new Map<string, { x: number, y: number, width: number, word: string }>();
       
-      wordElements.forEach(element => {
+      wordElements.forEach((element) => {
         const rect = element.getBoundingClientRect();
         const containerRect = animationContainerRef.current!.getBoundingClientRect();
-        const position = {
-          x: rect.left - containerRect.left + rect.width / 2,
-          y: rect.top - containerRect.top + rect.height / 2,
-          width: rect.width
-        };
+        const wordId = element.getAttribute('data-word-id');
+        const wordText = element.textContent?.trim() || '';
         
-        if (rect.width > 0 && rect.height > 0 && element.textContent?.trim()) {
-          const word = element.textContent.trim();
-          newPositions.set(word, position);
+        if (wordId && rect.width > 0 && rect.height > 0) {
+          const position = {
+            x: rect.left - containerRect.left + rect.width / 2,
+            y: rect.top - containerRect.top + rect.height / 2,
+            width: rect.width,
+            word: wordText
+          };
+          newPositions.set(wordId, position);
         }
       });
       
@@ -441,36 +484,53 @@ export const ChatInterface = () => {
           // Check for collisions with displayed words
           const missileY = (animationContainerRef.current?.clientHeight || 0) * (1 - progress);
           const missileX = missile.x;
-          const tolerance = 30;
 
           let hasCollision = false;
-          displayedWordPositions.forEach((pos, word) => {
-            // Calculate word boundaries
-            const wordLeft = pos.x - pos.width / 2;
-            const wordRight = pos.x + pos.width / 2;
+          let hitWordId: string | null = null;
+          
+          displayedWordPositions.forEach((pos, wordId) => {
+            // Skip if this word has already been hit
+            const messageMatch = wordId.match(/^(\d+)-/);
+            if (messageMatch) {
+              const messageIndex = parseInt(messageMatch[1]);
+              const message = messages[messageIndex];
+              if (message?.hitWordIds?.has(wordId)) {
+                return; // Skip this word, it's already been hit
+              }
+            }
+            
+            // More accurate hit detection for small words
+            const wordLeft = pos.x;
+            const wordRight = pos.x + pos.width;
+            const wordTop = pos.y - 10; // Half of approximate text height
+            const wordBottom = pos.y + 10;
             
             // Check if missile is within word boundaries
-            const isWithinWordWidth = missileX >= wordLeft && missileX <= wordRight;
-            const isWithinWordHeight = Math.abs(missileY - pos.y) < tolerance;
+            const isWithinWordWidth = missileX >= wordLeft - 10 && missileX <= wordRight + 10;
+            const isWithinWordHeight = missileY >= wordTop && missileY <= wordBottom;
             
-            if (isWithinWordWidth && isWithinWordHeight) {
+            if (isWithinWordWidth && isWithinWordHeight && !hasCollision) {
+              hasCollision = true;
+              hitWordId = wordId;
+              
+              // Trigger explosion animation for the word
+              setExplodingWords(prev => new Set([...prev, wordId]));
+              
               // Update hitWords for the current message
               setMessages(prev => {
                 const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  lastMessage.hitWords = new Set([...(lastMessage.hitWords || []), word]);
+                if (messageMatch) {
+                  const messageIndex = parseInt(messageMatch[1]);
+                  if (newMessages[messageIndex] && newMessages[messageIndex].role === 'assistant') {
+                    newMessages[messageIndex].hitWordIds = new Set([...(newMessages[messageIndex].hitWordIds || []), wordId]);
+                  }
                 }
                 return newMessages;
               });
-              if (attackingWords.has(word)) {
-                setExplodingWords(prev => new Set([...prev, word]));
-                hasCollision = true;
-              }
             }
           });
 
-          // If there was a collision with an attacking word, set progress to 1 to remove the missile
+          // If there was a collision, set progress to 1 to remove the missile
           if (hasCollision) {
             return { ...missile, progress: 1 };
           }
@@ -493,37 +553,51 @@ export const ChatInterface = () => {
               const missileY = (animationContainerRef.current?.clientHeight || 0) * (1 - missile.progress);
               const wordY = 48 + (animationContainerRef.current?.clientHeight || 0) * (1 - progress);
               const missileX = missile.x;
-              const tolerance = 30; // pixels of tolerance for collision
               
-              // Calculate word boundaries
-              const wordLeft = anim.x - 30; // Approximate word width
-              const wordRight = anim.x + 30;
+              // More accurate hit detection
+              const wordWidth = anim.word.length * 10; // Approximate based on word length
+              const wordLeft = anim.x;
+              const wordRight = anim.x + wordWidth;
               
-              // Check if missile is within word boundaries
-              const isWithinWordWidth = missileX >= wordLeft && missileX <= wordRight;
-              const isWithinWordHeight = Math.abs(missileY - wordY) < tolerance;
+              const isWithinWordWidth = missileX >= wordLeft - 10 && missileX <= wordRight + 10;
+              const isWithinWordHeight = Math.abs(missileY - wordY) < 20;
               
               return isWithinWordWidth && isWithinWordHeight;
             });
 
             if (missileCollision) {
-              setExplodingWords(prev => new Set([...prev, anim.word]));
-              // Update hitWords for the current message
-              setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  lastMessage.hitWords = new Set([...(lastMessage.hitWords || []), anim.word]);
+              setExplodingWords(prev => new Set([...prev, anim.wordId || anim.word]));
+              setAttackingWords(prev => {
+                const newSet = new Set(prev);
+                if (anim.wordId) {
+                  newSet.delete(anim.wordId);
                 }
-                return newMessages;
+                return newSet;
               });
+              
+              // Update hitWords for the current message if we have a wordId
+              if (anim.wordId) {
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  const messageMatch = anim.wordId?.match(/^(\d+)-/);
+                  if (messageMatch) {
+                    const messageIndex = parseInt(messageMatch[1]);
+                    if (newMessages[messageIndex] && newMessages[messageIndex].role === 'assistant') {
+                      newMessages[messageIndex].hitWordIds = new Set([...(newMessages[messageIndex].hitWordIds || []), anim.wordId!]);
+                    }
+                  }
+                  return newMessages;
+                });
+              }
+              
               return { 
                 ...anim, 
                 state: 'exploding' as const, 
                 start: now, 
                 end: now + 500,
-                progress: 0, // Reset progress for explosion animation
-                targetY: 48 + (animationContainerRef.current?.clientHeight || 0) * (1 - progress) // Store the current Y position
+                x: anim.x,
+                progress: 0,
+                targetY: 48 + (animationContainerRef.current?.clientHeight || 0) * (1 - progress)
               };
             }
             return { ...anim, progress };
@@ -537,64 +611,76 @@ export const ChatInterface = () => {
               const missileY = (animationContainerRef.current?.clientHeight || 0) * (1 - missile.progress);
               const wordY = (animationContainerRef.current?.clientHeight || 0) * attackProgress;
               const missileX = missile.x;
-              const tolerance = 30; // pixels of tolerance for collision
               
-              // Calculate word boundaries
-              const wordLeft = currentX - 30; // Approximate word width
-              const wordRight = currentX + 30;
+              // More accurate hit detection
+              const wordWidth = anim.word.length * 10; // Approximate based on word length
+              const wordLeft = currentX;
+              const wordRight = currentX + wordWidth;
               
-              // Check if missile is within word boundaries
-              const isWithinWordWidth = missileX >= wordLeft && missileX <= wordRight;
-              const isWithinWordHeight = Math.abs(missileY - wordY) < tolerance;
+              const isWithinWordWidth = missileX >= wordLeft - 10 && missileX <= wordRight + 10;
+              const isWithinWordHeight = Math.abs(missileY - wordY) < 20;
               
               return isWithinWordWidth && isWithinWordHeight;
             });
 
             if (missileCollision) {
-              setExplodingWords(prev => new Set([...prev, anim.word]));
+              setExplodingWords(prev => new Set([...prev, anim.wordId || anim.word]));
               setAttackingWords(prev => {
                 const newSet = new Set(prev);
-                newSet.delete(anim.word);
+                if (anim.wordId) {
+                  newSet.delete(anim.wordId);
+                }
                 return newSet;
               });
-              // Update hitWords for the current message
-              setMessages(prev => {
-                const newMessages = [...prev];
-                const lastMessage = newMessages[newMessages.length - 1];
-                if (lastMessage && lastMessage.role === 'assistant') {
-                  lastMessage.hitWords = new Set([...(lastMessage.hitWords || []), anim.word]);
-                }
-                return newMessages;
-              });
+              
+              // Update hitWords for the current message if we have a wordId
+              if (anim.wordId) {
+                setMessages(prev => {
+                  const newMessages = [...prev];
+                  const messageMatch = anim.wordId?.match(/^(\d+)-/);
+                  if (messageMatch) {
+                    const messageIndex = parseInt(messageMatch[1]);
+                    if (newMessages[messageIndex] && newMessages[messageIndex].role === 'assistant') {
+                      newMessages[messageIndex].hitWordIds = new Set([...(newMessages[messageIndex].hitWordIds || []), anim.wordId!]);
+                    }
+                  }
+                  return newMessages;
+                });
+              }
+              
               return { 
                 ...anim, 
                 state: 'exploding' as const, 
                 start: now, 
                 end: now + 500,
                 x: currentX,
-                progress: 0, // Reset progress for explosion animation
-                targetY: (animationContainerRef.current?.clientHeight || 0) * attackProgress // Store the current Y position
+                progress: 0,
+                targetY: (animationContainerRef.current?.clientHeight || 0) * attackProgress
               };
             }
             
             // Check for collision with spaceship when word reaches bottom
             if (attackProgress >= 1 && !isShipExploding) {
-              const shipX = shipPosition;
-              const tolerance = 30;
+              const shipX = shipPosition + 39; // Center of ship
+              const tolerance = 50; // Ship width
               
               if (Math.abs(currentX - shipX) < tolerance) {
                 console.log('Collision detected!');
                 setIsShipExploding(true);
                 setAttackingWords(prev => {
                   const newSet = new Set(prev);
-                  newSet.delete(anim.word);
+                  if (anim.wordId) {
+                    newSet.delete(anim.wordId);
+                  }
                   return newSet;
                 });
                 return { ...anim, progress: 1 };
               } else {
                 setAttackingWords(prev => {
                   const newSet = new Set(prev);
-                  newSet.delete(anim.word);
+                  if (anim.wordId) {
+                    newSet.delete(anim.wordId);
+                  }
                   return newSet;
                 });
                 return { ...anim, state: 'returning' as const, start: now, end: now + 2000 };
@@ -614,7 +700,7 @@ export const ChatInterface = () => {
             return { 
               ...anim, 
               progress: explodeProgress,
-              x: anim.x // Keep the same x position during explosion
+              x: anim.x
             };
           }
           
@@ -655,7 +741,7 @@ export const ChatInterface = () => {
               </div>
               <div className="prose prose-invert max-w-none">
                 {message.role === 'assistant' ? (
-                  <MessageContent content={message.content} attackingWords={attackingWords} hitWords={message.hitWords} />
+                  <MessageContent content={message.content} attackingWords={attackingWords} hitWordIds={message.hitWordIds} messageIndex={index} />
                 ) : (
                   <ReactMarkdown>{message.content}</ReactMarkdown>
                 )}
@@ -667,7 +753,7 @@ export const ChatInterface = () => {
             <div className="mb-4 text-green-400">
               <div className="font-bold mb-1">&gt; AI</div>
               <div className="prose prose-invert max-w-none">
-                <MessageContent content={displayedAssistantMessage} attackingWords={attackingWords} hitWords={new Set()} />
+                <MessageContent content={displayedAssistantMessage} attackingWords={attackingWords} hitWordIds={new Set()} messageIndex={messages.length} />
               </div>
             </div>
           )}
@@ -706,12 +792,12 @@ export const ChatInterface = () => {
             </span>
           ))}
           {/* Add explosion animations for hit words in chat */}
-          {Array.from(explodingWords).map((word, index) => {
-            const position = displayedWordPositions.get(word);
+          {Array.from(explodingWords).map((wordId, index) => {
+            const position = displayedWordPositions.get(wordId);
             if (!position) return null;
             return (
               <span
-                key={`explosion-${word}-${index}`}
+                key={`explosion-${wordId}-${index}`}
                 style={{
                   position: 'absolute',
                   left: `${position.x}px`,
@@ -726,8 +812,15 @@ export const ChatInterface = () => {
                   animation: 'explosion 0.5s ease-out forwards'
                 }}
                 className="word-exploding"
+                onAnimationEnd={() => {
+                  setExplodingWords(prev => {
+                    const newSet = new Set(prev);
+                    newSet.delete(wordId);
+                    return newSet;
+                  });
+                }}
               >
-                {word}
+                {position.word}
               </span>
             );
           })}
