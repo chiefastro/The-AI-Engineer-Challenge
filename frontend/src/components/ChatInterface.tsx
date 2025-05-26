@@ -13,9 +13,17 @@ interface WordAnimation {
   end: number;
   progress: number;
   x: number;
-  state: 'floating' | 'attacking' | 'returning';
+  state: 'floating' | 'attacking' | 'returning' | 'exploding';
   targetX?: number;
   targetY?: number;
+}
+
+interface Missile {
+  id: number;
+  x: number;
+  start: number;
+  end: number;
+  progress: number;
 }
 
 // Box-Muller transform to generate normally distributed random numbers
@@ -24,6 +32,28 @@ const normalRandom = (mean: number, stdDev: number): number => {
   const u2 = Math.random();
   const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
   return z0 * stdDev + mean;
+};
+
+// Add this new component for rendering messages with attacking words
+const MessageContent = ({ content, attackingWords, hitWords }: { content: string, attackingWords: Set<string>, hitWords: Set<string> }) => {
+  const words = content.split(/\s+/);
+  const elements = words.map((word, i) => {
+    if (attackingWords.has(word) || hitWords.has(word)) {
+      return <span key={i} style={{ color: 'black' }}>{word}</span>;
+    }
+    return word;
+  });
+
+  // Add spaces between words
+  const contentWithSpaces = elements.reduce((acc: React.ReactNode[], element, i) => {
+    if (i > 0) {
+      acc.push(' ');
+    }
+    acc.push(element);
+    return acc;
+  }, []);
+
+  return <>{contentWithSpaces}</>;
 };
 
 export const ChatInterface = () => {
@@ -44,6 +74,11 @@ export const ChatInterface = () => {
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const [isShipExploding, setIsShipExploding] = useState(false);
   const [attackInterval, setAttackInterval] = useState<NodeJS.Timeout | null>(null);
+  const [missiles, setMissiles] = useState<Missile[]>([]);
+  const [nextMissileId, setNextMissileId] = useState(0);
+  const [explodingWords, setExplodingWords] = useState<Set<string>>(new Set());
+  const [attackingWords, setAttackingWords] = useState<Set<string>>(new Set());
+  const [hitWords, setHitWords] = useState<Set<string>>(new Set());
 
   // Cursor blink effect
   useEffect(() => {
@@ -268,8 +303,10 @@ export const ChatInterface = () => {
         console.log('Starting attack interval with message:', lastAssistantMessage);
         // Start attack interval
         const interval = setInterval(() => {
-          // Pick a random word from the last assistant message
-          const words = lastAssistantMessage.split(/\s+/).filter(word => word.length > 2); // Only attack words longer than 2 chars
+          // Pick a random word from the last assistant message, excluding hit words
+          const words = lastAssistantMessage.split(/\s+/)
+            .filter(word => word.length > 2 && !hitWords.has(word)); // Only attack words longer than 2 chars and not hit
+          
           if (words.length > 0) {
             const randomWord = words[Math.floor(Math.random() * words.length)];
             // Create a fixed attack pattern
@@ -282,6 +319,7 @@ export const ChatInterface = () => {
             const randomX = attackPositions[Math.floor(Math.random() * attackPositions.length)];
             
             console.log('Attacking with word:', randomWord);
+            setAttackingWords(prev => new Set([...prev, randomWord]));
             setWordAnimation(prev => [...prev, {
               word: randomWord,
               start: Date.now(),
@@ -292,7 +330,7 @@ export const ChatInterface = () => {
               targetX: randomX // Keep the same X position
             }]);
           }
-        }, 3000); // Attack every 3 seconds
+        }, 1500); // Attack every 1.5 seconds
         
         setAttackInterval(interval);
       }
@@ -304,7 +342,7 @@ export const ChatInterface = () => {
         clearInterval(attackInterval);
       }
     };
-  }, [isLoading, messages, wordAnimation, pendingWords]);
+  }, [isLoading, messages, wordAnimation, pendingWords, hitWords]);
 
   // Reset ship explosion after animation
   useEffect(() => {
@@ -328,14 +366,44 @@ export const ChatInterface = () => {
     }
   }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
 
-  // Animation frame for animating words
+  // Add click handler for shooting missiles
+  const handleContainerClick = (e: React.MouseEvent) => {
+    if (isLoading) return;
+    
+    // Don't shoot if clicking on input or links
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'INPUT' || target.tagName === 'A' || target.tagName === 'BUTTON') return;
+
+    // Create new missile at ship position, centered on the ship
+    const newMissile: Missile = {
+      id: nextMissileId,
+      x: shipPosition + 39, // Add half of the ship's width (50px) to center the missile
+      start: Date.now(),
+      end: Date.now() + 1000, // 1 second flight time
+      progress: 0
+    };
+
+    setMissiles(prev => [...prev, newMissile]);
+    setNextMissileId(prev => prev + 1);
+  };
+
+  // Animation frame for animating words and missiles
   useEffect(() => {
-    if (wordAnimation.length === 0) return;
+    if (wordAnimation.length === 0 && missiles.length === 0) return;
     
     let raf: number;
     const animate = () => {
       const now = Date.now();
       
+      // Update missiles
+      setMissiles(prev => {
+        const updated = prev.map(missile => {
+          const progress = Math.min((now - missile.start) / (missile.end - missile.start), 1);
+          return { ...missile, progress };
+        });
+        return updated.filter(missile => missile.progress < 1);
+      });
+
       // Update progress for all animations
       setWordAnimation(prev => {
         const updated = prev.map(anim => {
@@ -347,45 +415,86 @@ export const ChatInterface = () => {
             return { ...anim, progress };
           } else if (anim.state === 'attacking') {
             // Calculate position for attacking animation
-            const attackProgress = Math.min((now - anim.start) / 2000, 1); // 2 second attack duration
-            
-            // Keep the same X position throughout the attack
+            const attackProgress = Math.min((now - anim.start) / 2000, 1);
             const currentX = anim.x;
+            
+            // Check for collision with missiles
+            const missileCollision = missiles.some(missile => {
+              const missileY = (animationContainerRef.current?.clientHeight || 0) * (1 - missile.progress);
+              const wordY = (animationContainerRef.current?.clientHeight || 0) * attackProgress;
+              const missileX = missile.x;
+              const tolerance = 30; // pixels of tolerance for collision
+              
+              return Math.abs(missileY - wordY) < tolerance && Math.abs(missileX - currentX) < tolerance;
+            });
+
+            if (missileCollision) {
+              setExplodingWords(prev => new Set([...prev, anim.word]));
+              setAttackingWords(prev => {
+                const newSet = new Set(prev);
+                newSet.delete(anim.word);
+                return newSet;
+              });
+              setHitWords(prev => new Set([...prev, anim.word]));
+              return { 
+                ...anim, 
+                state: 'exploding' as const, 
+                start: now, 
+                end: now + 500,
+                x: currentX,
+                progress: 0, // Reset progress for explosion animation
+                targetY: (animationContainerRef.current?.clientHeight || 0) * attackProgress // Store the current Y position
+              };
+            }
             
             // Check for collision with spaceship when word reaches bottom
             if (attackProgress >= 1 && !isShipExploding) {
-              // Check if word is at the same X position as the ship (with some tolerance)
               const shipX = shipPosition;
-              const tolerance = 30; // pixels of tolerance for collision
+              const tolerance = 30;
               
               if (Math.abs(currentX - shipX) < tolerance) {
-                // Collision detected!
                 console.log('Collision detected!');
                 setIsShipExploding(true);
+                setAttackingWords(prev => {
+                  const newSet = new Set(prev);
+                  newSet.delete(anim.word);
+                  return newSet;
+                });
+                return { ...anim, progress: 1 };
+              } else {
+                setAttackingWords(prev => {
+                  const newSet = new Set(prev);
+                  newSet.delete(anim.word);
+                  return newSet;
+                });
                 return { ...anim, state: 'returning' as const, start: now, end: now + 2000 };
               }
             }
             
             return { ...anim, progress: attackProgress, x: currentX };
           } else if (anim.state === 'returning') {
-            // Calculate position for returning animation
-            const returnProgress = Math.min((now - anim.start) / 2000, 1); // 2 second return duration
+            const returnProgress = Math.min((now - anim.start) / 2000, 1);
             const startX = anim.x;
             const endX = anim.targetX || 0;
             const currentX = startX + (endX - startX) * returnProgress;
             
             return { ...anim, progress: returnProgress, x: currentX };
+          } else if (anim.state === 'exploding') {
+            const explodeProgress = Math.min((now - anim.start) / 500, 1);
+            return { 
+              ...anim, 
+              progress: explodeProgress,
+              x: anim.x // Keep the same x position during explosion
+            };
           }
           
           return { ...anim, progress };
         });
         
-        // Remove completed animations
         return updated.filter(anim => anim.progress < 1);
       });
       
-      // Only continue animation if there are still words to animate
-      if (wordAnimation.length > 0) {
+      if (wordAnimation.length > 0 || missiles.length > 0) {
         raf = requestAnimationFrame(animate);
       }
     };
@@ -394,11 +503,15 @@ export const ChatInterface = () => {
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [wordAnimation, isShipExploding]);
+  }, [wordAnimation, missiles, isShipExploding, shipPosition]);
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
-      <div className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" style={{ minHeight: 0 }}>
+      <div 
+        className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" 
+        style={{ minHeight: 0 }}
+        onClick={handleContainerClick}
+      >
         <div className="flex-1 overflow-y-auto" ref={animationContainerRef}>
           {messages.map((message, index) => (
             <div
@@ -411,7 +524,11 @@ export const ChatInterface = () => {
                 {message.role === 'user' ? '> User' : '> AI'}
               </div>
               <div className="prose prose-invert max-w-none">
-                <ReactMarkdown>{message.content}</ReactMarkdown>
+                {message.role === 'assistant' ? (
+                  <MessageContent content={message.content} attackingWords={attackingWords} hitWords={hitWords} />
+                ) : (
+                  <ReactMarkdown>{message.content}</ReactMarkdown>
+                )}
               </div>
             </div>
           ))}
@@ -420,7 +537,7 @@ export const ChatInterface = () => {
             <div className="mb-4 text-green-400">
               <div className="font-bold mb-1">&gt; AI</div>
               <div className="prose prose-invert max-w-none">
-                <ReactMarkdown>{displayedAssistantMessage}</ReactMarkdown>
+                <MessageContent content={displayedAssistantMessage} attackingWords={attackingWords} hitWords={hitWords} />
               </div>
             </div>
           )}
@@ -433,15 +550,27 @@ export const ChatInterface = () => {
                 left: `${anim.x}px`,
                 top: anim.state === 'attacking' 
                   ? `${(animationContainerRef.current.clientHeight + 80) * anim.progress}px`
+                  : anim.state === 'exploding'
+                  ? `${anim.targetY || 0}px`
                   : `${48 + (animationContainerRef.current.clientHeight - 100) * (1 - anim.progress)}px`,
                 transition: 'none',
                 fontWeight: 'bold',
                 pointerEvents: 'none',
                 zIndex: 20,
-                fontSize: '1em',
-                opacity: anim.state === 'attacking' ? 1 : 1 - anim.progress
+                fontSize: anim.state === 'exploding' ? `${1 + anim.progress * 1.5}em` : '1em',
+                opacity: anim.state === 'exploding' ? 1 - anim.progress : 1,
+                color: anim.state === 'exploding' ? '#ff0000' : 'inherit',
+                transform: anim.state === 'exploding' 
+                  ? `scale(${1 + anim.progress * 2}) rotate(${anim.progress * 360}deg)`
+                  : 'none',
+                textShadow: anim.state === 'exploding' 
+                  ? `0 0 ${anim.progress * 10}px #ff0000, 0 0 ${anim.progress * 20}px #ff0000`
+                  : 'none',
+                willChange: 'transform, opacity, font-size, color, text-shadow'
               }}
-              className={`${anim.state === 'attacking' ? 'word-attacking' : ''} ${anim.state === 'returning' ? 'word-returning' : ''}`}
+              className={`${anim.state === 'attacking' ? 'word-attacking' : ''} 
+                         ${anim.state === 'returning' ? 'word-returning' : ''}
+                         ${anim.state === 'exploding' ? 'word-exploding' : ''}`}
             >
               {anim.word}
             </span>
@@ -488,6 +617,21 @@ export const ChatInterface = () => {
             }}
           />
         </div>
+        {/* Add missiles to the animation container */}
+        {missiles.map(missile => (
+          <div
+            key={missile.id}
+            className="absolute w-2 h-4 bg-red-500"
+            style={{
+              left: `${missile.x}px`,
+              top: `${(animationContainerRef.current?.clientHeight || 0) * (1 - missile.progress)}px`,
+              transform: 'translateX(-50%)',
+              transition: 'none',
+              pointerEvents: 'none',
+              zIndex: 20,
+            }}
+          />
+        ))}
       </div>
     </div>
   );
