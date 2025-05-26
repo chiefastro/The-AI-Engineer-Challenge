@@ -82,6 +82,7 @@ export const ChatInterface = () => {
   const [wordAnimation, setWordAnimation] = useState<WordAnimation[]>([]);
   const [pendingWords, setPendingWords] = useState<string[]>([]);
   const [shipPosition, setShipPosition] = useState(400);
+  const currentShipPositionRef = useRef(400);
   const [isShipMoving, setIsShipMoving] = useState(false);
   const [completedWords, setCompletedWords] = useState<Set<string>>(new Set());
   const [showCursor, setShowCursor] = useState(true);
@@ -94,6 +95,13 @@ export const ChatInterface = () => {
   const [explodingWords, setExplodingWords] = useState<Set<string>>(new Set());
   const [attackingWords, setAttackingWords] = useState<Set<string>>(new Set());
   const [displayedWordPositions, setDisplayedWordPositions] = useState<Map<string, { x: number, y: number, width: number, word: string }>>(new Map());
+  const firingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isMouseDownRef = useRef(false);
+
+  // Update the ref whenever shipPosition changes
+  useEffect(() => {
+    currentShipPositionRef.current = shipPosition;
+  }, [shipPosition]);
 
   // Cursor blink effect
   useEffect(() => {
@@ -116,9 +124,12 @@ export const ChatInterface = () => {
       }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
+    // Only add mousemove listener if we're not in a loading or exploding state
+    if (!isLoading && !isShipExploding) {
+      window.addEventListener('mousemove', handleMouseMove);
+    }
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, []);
+  }, [isLoading, isShipExploding]);
 
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
@@ -311,33 +322,57 @@ export const ChatInterface = () => {
     }
   }, [pendingWords, isShipMoving, shipPosition, completedWords]);
 
-  // Add click handler for shooting missiles
-  const handleContainerClick = (e: React.MouseEvent) => {
-    if (isLoading || isShipExploding) return;
-    
-    // Don't shoot if clicking on input or links
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'INPUT' || target.tagName === 'A' || target.tagName === 'BUTTON') return;
-    
-    // Don't shoot if clicking on a word
-    if (target.classList.contains('word')) return;
-
-    // Create new missile at ship position, centered on the ship
+  // Extract missile firing logic into a separate function
+  const fireMissile = () => {
     const newMissile: Missile = {
-      id: nextMissileId,
-      x: shipPosition + 39, // Add half of the ship's width (50px) to center the missile
+      id: Date.now() + Math.random(), // Use timestamp + random number for unique ID
+      x: currentShipPositionRef.current + 39, // Use the ref for current position
       start: Date.now(),
       end: Date.now() + 1000, // 1 second flight time
       progress: 0
     };
 
     setMissiles(prev => [...prev, newMissile]);
-    setNextMissileId(prev => prev + 1);
+  };
 
-    // Maintain input focus after shooting
-    if (inputRef.current) {
-      inputRef.current.focus();
+  const startFiring = () => {
+    // Clear any existing interval first
+    if (firingIntervalRef.current) {
+      clearInterval(firingIntervalRef.current);
+      firingIntervalRef.current = null;
     }
+    
+    isMouseDownRef.current = true;
+    fireMissile(); // Fire immediately
+    
+    // Start new interval
+    firingIntervalRef.current = setInterval(() => {
+      if (isMouseDownRef.current) {
+        fireMissile();
+      }
+    }, 200);
+  };
+
+  const stopFiring = () => {
+    isMouseDownRef.current = false;
+    if (firingIntervalRef.current) {
+      clearInterval(firingIntervalRef.current);
+      firingIntervalRef.current = null;
+    }
+  };
+
+  // Modify handleContainerClick to use the new fireMissile function
+  const handleContainerClick = (e: React.MouseEvent) => {
+    if (isLoading || isShipExploding) return;
+    
+    // Don't shoot if clicking on links or buttons
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
+    
+    // Don't shoot if clicking on a word
+    if (target.classList.contains('word')) return;
+
+    fireMissile();
   };
 
   // When all words are delivered, finalize the message
@@ -726,7 +761,30 @@ export const ChatInterface = () => {
       <div 
         className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" 
         style={{ minHeight: 0 }}
-        onClick={handleContainerClick}
+        onMouseDown={(e) => {
+          if (isLoading || isShipExploding) return;
+          
+          // Don't shoot if clicking on links or buttons
+          const target = e.target as HTMLElement;
+          if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
+          
+          // Don't shoot if clicking on a word
+          if (target.classList.contains('word')) return;
+
+          startFiring();
+        }}
+        onMouseUp={stopFiring}
+        onMouseLeave={stopFiring}
+        onMouseMove={(e) => {
+          if (animationContainerRef.current) {
+            const containerRect = animationContainerRef.current.getBoundingClientRect();
+            const relativeX = e.clientX - containerRect.left;
+            const minX = -24; // Allow going all the way to the left
+            const maxX = containerRect.width - 24; // Full width minus ship width (78px)
+            const clampedX = Math.max(minX, Math.min(maxX, relativeX));
+            setShipPosition(clampedX);
+          }
+        }}
       >
         <div className="flex-1 overflow-y-auto" ref={animationContainerRef}>
           {messages.map((message, index) => (
