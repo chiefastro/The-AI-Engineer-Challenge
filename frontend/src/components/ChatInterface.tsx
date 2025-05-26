@@ -7,6 +7,17 @@ interface Message {
   content: string;
 }
 
+interface WordAnimation {
+  word: string;
+  start: number;
+  end: number;
+  progress: number;
+  x: number;
+  state: 'floating' | 'attacking' | 'returning';
+  targetX?: number;
+  targetY?: number;
+}
+
 // Box-Muller transform to generate normally distributed random numbers
 const normalRandom = (mean: number, stdDev: number): number => {
   const u1 = Math.random();
@@ -23,7 +34,7 @@ export const ChatInterface = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const [wordAnimation, setWordAnimation] = useState<Array<{word: string, start: number, end: number, progress: number, x: number}>>([]);
+  const [wordAnimation, setWordAnimation] = useState<WordAnimation[]>([]);
   const [pendingWords, setPendingWords] = useState<string[]>([]);
   const [shipPosition, setShipPosition] = useState(400);
   const [isShipMoving, setIsShipMoving] = useState(false);
@@ -31,6 +42,8 @@ export const ChatInterface = () => {
   const [showCursor, setShowCursor] = useState(true);
   const [cursorPosition, setCursorPosition] = useState(0);
   const inputContainerRef = useRef<HTMLDivElement>(null);
+  const [isShipExploding, setIsShipExploding] = useState(false);
+  const [attackInterval, setAttackInterval] = useState<NodeJS.Timeout | null>(null);
 
   // Cursor blink effect
   useEffect(() => {
@@ -154,7 +167,7 @@ export const ChatInterface = () => {
         const response = await fetch('http://localhost:8000/api/chat', {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json',
+            'Content-Type': 'application/json', 
           },
           body: JSON.stringify(requestBody),
         });
@@ -215,7 +228,8 @@ export const ChatInterface = () => {
           start: Date.now(),
           end: Date.now() + 250,
           progress: 0,
-          x: shipPosition // Use current ship position instead of random position
+          x: shipPosition,
+          state: 'floating'
         }]);
         
         // Add word to message after animation duration
@@ -244,6 +258,76 @@ export const ChatInterface = () => {
     }
   }, [pendingWords, isShipMoving, shipPosition, completedWords]);
 
+  // Start attack interval when message is complete
+  useEffect(() => {
+    if (!isLoading && messages.length > 0 && wordAnimation.length === 0 && pendingWords.length === 0) {
+      // Get the last assistant message
+      const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')?.content;
+      
+      if (lastAssistantMessage) {
+        console.log('Starting attack interval with message:', lastAssistantMessage);
+        // Start attack interval
+        const interval = setInterval(() => {
+          // Pick a random word from the last assistant message
+          const words = lastAssistantMessage.split(/\s+/).filter(word => word.length > 2); // Only attack words longer than 2 chars
+          if (words.length > 0) {
+            const randomWord = words[Math.floor(Math.random() * words.length)];
+            // Create a fixed attack pattern
+            const containerWidth = animationContainerRef.current?.clientWidth || 800;
+            const attackPositions = [
+              containerWidth * 0.25,  // Left
+              containerWidth * 0.5,   // Center
+              containerWidth * 0.75   // Right
+            ];
+            const randomX = attackPositions[Math.floor(Math.random() * attackPositions.length)];
+            
+            console.log('Attacking with word:', randomWord);
+            setWordAnimation(prev => [...prev, {
+              word: randomWord,
+              start: Date.now(),
+              end: Date.now() + 2000, // Slower animation (2 seconds)
+              progress: 0,
+              x: randomX,
+              state: 'attacking' as const,
+              targetX: randomX // Keep the same X position
+            }]);
+          }
+        }, 3000); // Attack every 3 seconds
+        
+        setAttackInterval(interval);
+      }
+    }
+    
+    return () => {
+      if (attackInterval) {
+        console.log('Clearing attack interval');
+        clearInterval(attackInterval);
+      }
+    };
+  }, [isLoading, messages, wordAnimation, pendingWords]);
+
+  // Reset ship explosion after animation
+  useEffect(() => {
+    if (isShipExploding) {
+      const timer = setTimeout(() => {
+        setIsShipExploding(false);
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [isShipExploding]);
+
+  // When all words are delivered, finalize the message
+  useEffect(() => {
+    if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
+      console.log('Finalizing message:', displayedAssistantMessage);
+      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
+      setIsLoading(false);
+      setDisplayedAssistantMessage('');
+      setIsShipMoving(false);
+      setCompletedWords(new Set()); // Reset completed words
+    }
+  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
+
   // Animation frame for animating words
   useEffect(() => {
     if (wordAnimation.length === 0) return;
@@ -257,6 +341,42 @@ export const ChatInterface = () => {
         const updated = prev.map(anim => {
           const duration = anim.end - anim.start;
           const progress = Math.min((now - anim.start) / duration, 1);
+          
+          // Handle different animation states
+          if (anim.state === 'floating') {
+            return { ...anim, progress };
+          } else if (anim.state === 'attacking') {
+            // Calculate position for attacking animation
+            const attackProgress = Math.min((now - anim.start) / 2000, 1); // 2 second attack duration
+            
+            // Keep the same X position throughout the attack
+            const currentX = anim.x;
+            
+            // Check for collision with spaceship when word reaches bottom
+            if (attackProgress >= 1 && !isShipExploding) {
+              // Check if word is at the same X position as the ship (with some tolerance)
+              const shipX = shipPosition;
+              const tolerance = 30; // pixels of tolerance for collision
+              
+              if (Math.abs(currentX - shipX) < tolerance) {
+                // Collision detected!
+                console.log('Collision detected!');
+                setIsShipExploding(true);
+                return { ...anim, state: 'returning' as const, start: now, end: now + 2000 };
+              }
+            }
+            
+            return { ...anim, progress: attackProgress, x: currentX };
+          } else if (anim.state === 'returning') {
+            // Calculate position for returning animation
+            const returnProgress = Math.min((now - anim.start) / 2000, 1); // 2 second return duration
+            const startX = anim.x;
+            const endX = anim.targetX || 0;
+            const currentX = startX + (endX - startX) * returnProgress;
+            
+            return { ...anim, progress: returnProgress, x: currentX };
+          }
+          
           return { ...anim, progress };
         });
         
@@ -274,19 +394,7 @@ export const ChatInterface = () => {
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [wordAnimation]);
-
-  // When all words are delivered, finalize the message
-  useEffect(() => {
-    if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
-      console.log('Finalizing message:', displayedAssistantMessage);
-      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
-      setIsLoading(false);
-      setDisplayedAssistantMessage('');
-      setIsShipMoving(false);
-      setCompletedWords(new Set()); // Reset completed words
-    }
-  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
+  }, [wordAnimation, isShipExploding]);
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
@@ -323,16 +431,17 @@ export const ChatInterface = () => {
               style={{
                 position: 'absolute',
                 left: `${anim.x}px`,
-                bottom: `${48 + (animationContainerRef.current.clientHeight - 100) * anim.progress}px`,
+                top: anim.state === 'attacking' 
+                  ? `${(animationContainerRef.current.clientHeight + 80) * anim.progress}px`
+                  : `${48 + (animationContainerRef.current.clientHeight - 100) * (1 - anim.progress)}px`,
                 transition: 'none',
-                color: '#fff',
                 fontWeight: 'bold',
                 pointerEvents: 'none',
                 zIndex: 20,
                 fontSize: '1em',
-                textShadow: '0 0 4px #00f0ff',
-                opacity: 1 - anim.progress
+                opacity: anim.state === 'attacking' ? 1 : 1 - anim.progress
               }}
+              className={`${anim.state === 'attacking' ? 'word-attacking' : ''} ${anim.state === 'returning' ? 'word-returning' : ''}`}
             >
               {anim.word}
             </span>
@@ -372,6 +481,7 @@ export const ChatInterface = () => {
           <Spaceship
             isMoving={isShipMoving || !!wordAnimation.length}
             position={shipPosition}
+            isExploding={isShipExploding}
             style={{
               transition: 'transform 0.1s ease-out',
               transform: `translateX(${shipPosition}px)`
