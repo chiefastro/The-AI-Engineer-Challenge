@@ -91,7 +91,6 @@ export const ChatInterface = () => {
   const [isShipExploding, setIsShipExploding] = useState(false);
   const attackIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [missiles, setMissiles] = useState<Missile[]>([]);
-  const [nextMissileId, setNextMissileId] = useState(0);
   const [explodingWords, setExplodingWords] = useState<Set<string>>(new Set());
   const [attackingWords, setAttackingWords] = useState<Set<string>>(new Set());
   const [displayedWordPositions, setDisplayedWordPositions] = useState<Map<string, { x: number, y: number, width: number, word: string }>>(new Map());
@@ -521,7 +520,6 @@ export const ChatInterface = () => {
           const missileX = missile.x;
 
           let hasCollision = false;
-          let hitWordId: string | null = null;
           
           displayedWordPositions.forEach((pos, wordId) => {
             // Skip if this word has already been hit
@@ -546,7 +544,6 @@ export const ChatInterface = () => {
             
             if (isWithinWordWidth && isWithinWordHeight && !hasCollision) {
               hasCollision = true;
-              hitWordId = wordId;
               
               // Trigger explosion animation for the word
               setExplodingWords(prev => new Set([...prev, wordId]));
@@ -754,7 +751,7 @@ export const ChatInterface = () => {
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [wordAnimation, missiles, isShipExploding, shipPosition, displayedWordPositions, animationContainerRef.current?.clientHeight]);
+  }, [wordAnimation, missiles, isShipExploding, shipPosition, displayedWordPositions, messages, animationContainerRef.current?.clientHeight]);
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
