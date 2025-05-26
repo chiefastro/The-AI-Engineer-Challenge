@@ -360,20 +360,6 @@ export const ChatInterface = () => {
     }
   };
 
-  // Modify handleContainerClick to use the new fireMissile function
-  const handleContainerClick = (e: React.MouseEvent) => {
-    if (isLoading || isShipExploding) return;
-    
-    // Don't shoot if clicking on links or buttons
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
-    
-    // Don't shoot if clicking on a word
-    if (target.classList.contains('word')) return;
-
-    fireMissile();
-  };
-
   // When all words are delivered, finalize the message
   useEffect(() => {
     if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
