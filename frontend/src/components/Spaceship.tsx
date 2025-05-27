@@ -13,7 +13,7 @@ export const Spaceship = ({ isMoving, position, style, className, isExploding }:
 
   useEffect(() => {
     if (shipRef.current) {
-      shipRef.current.style.transform = `translateX(${position}px)`;
+      shipRef.current.style.transform = `translateX(${position - 24}px)`;
     }
   }, [position]);
 
