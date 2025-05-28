@@ -9,6 +9,13 @@ interface Message {
   hitWordIds?: Set<string>;
 }
 
+interface LeaderboardEntry {
+  initials: string;
+  score: number;
+  timestamp: string;
+  rank?: number;
+}
+
 interface WordAnimation {
   word: string;
   start: number;
@@ -107,6 +114,12 @@ export const ChatInterface = () => {
   const [input, setInput] = useState('print me 100 purple galaga space emojis with no other text');
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
   const [streamingHitWordIds, setStreamingHitWordIds] = useState<Set<string>>(new Set());
+  const [score, setScore] = useState(0);
+  const [lives, setLives] = useState(3);
+  const [gameOver, setGameOver] = useState(false);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [initials, setInitials] = useState('');
+  const [submittingScore, setSubmittingScore] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -127,6 +140,7 @@ export const ChatInterface = () => {
   const isMouseDownRef = useRef(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
   const [streamingActive, setStreamingActive] = useState(false);
+  const [hasCollided, setHasCollided] = useState(false);
 
   // Update the ref whenever shipPosition changes
   useEffect(() => {
@@ -161,17 +175,6 @@ export const ChatInterface = () => {
     return () => window.removeEventListener('mousemove', handleMouseMove);
   }, [isShipExploding]);
 
-  useEffect(() => {
-    const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-    console.log('API Key available:', !!apiKey);
-    if (!apiKey) {
-      setMessages([{
-        role: 'assistant',
-        content: 'Error: OpenAI API key is not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file.'
-      }]);
-    }
-  }, []);
-
   const scrollToBottom = () => {
     if (animationContainerRef.current) {
       animationContainerRef.current.scrollTop = animationContainerRef.current.scrollHeight;
@@ -194,9 +197,9 @@ export const ChatInterface = () => {
 
   // Keep input focused at all times
   useEffect(() => {
-    // Only enable auto-focus on desktop devices
+    // Only enable auto-focus on desktop devices and when not in game over state
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    if (isMobile) return;
+    if (isMobile || gameOver) return;
 
     const handleWindowClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
@@ -233,7 +236,7 @@ export const ChatInterface = () => {
         inputElement.removeEventListener('blur', handleBlur);
       }
     };
-  }, []);
+  }, [gameOver]);
 
   // Handle input changes and cursor position
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -372,7 +375,7 @@ export const ChatInterface = () => {
         attackIntervalRef.current = null;
       }
     }
-  }, [displayedAssistantMessage, streamingComplete]);
+  }, [displayedAssistantMessage, streamingComplete, streamingHitWordIds]);
 
   // Start attack interval when message is complete
   useEffect(() => {
@@ -383,7 +386,6 @@ export const ChatInterface = () => {
       if (lastAssistantMessage) {
         // Clear any existing interval
         if (attackIntervalRef.current) {
-          console.log('Clearing existing attack interval');
           clearInterval(attackIntervalRef.current);
         }
         
@@ -422,7 +424,6 @@ export const ChatInterface = () => {
             const startY = wordPosition.y;
             const startX = wordPosition.x;
             
-            console.log('Attacking with word:', randomInstance.word, 'ID:', randomInstance.id);
             setAttackingWords(prev => new Set([...prev, randomInstance.id]));
             setWordAnimation(prev => [...prev, {
               word: randomInstance.word,
@@ -444,7 +445,6 @@ export const ChatInterface = () => {
     
     return () => {
       if (attackIntervalRef.current) {
-        console.log('Clearing attack interval');
         clearInterval(attackIntervalRef.current);
         attackIntervalRef.current = null;
       }
@@ -474,10 +474,18 @@ export const ChatInterface = () => {
     if (isShipExploding) {
       const timer = setTimeout(() => {
         setIsShipExploding(false);
+        // Don't reset hasCollided here - it will be reset when the word is removed
       }, 1000);
       return () => clearTimeout(timer);
     }
   }, [isShipExploding]);
+
+  // Reset collision state when word is removed
+  useEffect(() => {
+    if (wordAnimation.length === 0) {
+      setHasCollided(false);
+    }
+  }, [wordAnimation.length]);
 
   // Add this effect to track word positions
   useEffect(() => {
@@ -506,7 +514,67 @@ export const ChatInterface = () => {
     }
   }, [messages, displayedAssistantMessage]);
 
-  // Update the animation frame effect to check for collisions with displayed words
+  // Separate effect for collision detection and state transitions
+  useEffect(() => {
+    if (!wordAnimation.length || isShipExploding) return;
+
+    const checkCollisions = () => {
+      wordAnimation.forEach(anim => {
+        if (anim.state === 'attacking') {
+          const attackProgress = Math.min((Date.now() - anim.start) / 2000, 1);
+          
+          if (attackProgress >= 1) {
+            const shipX = shipPosition + 17;
+            const tolerance = 50;
+            
+            if (Math.abs(anim.x - shipX) < tolerance && !hasCollided) {
+              setHasCollided(true);
+              setIsShipExploding(true);
+              setLives(prev => {
+                const newLives = Math.max(0, prev - 1);
+                if (newLives === 0) {
+                  setGameOver(true);
+                }
+                return newLives;
+              });
+              setAttackingWords(prev => {
+                const newSet = new Set(prev);
+                if (anim.wordId) {
+                  newSet.delete(anim.wordId);
+                }
+                return newSet;
+              });
+              // Reset hasCollided after a short delay to allow for explosion animation
+              setTimeout(() => {
+                setHasCollided(false);
+              }, 1000); // Match the explosion animation duration
+            } else {
+              // Transition to returning state if no collision
+              setWordAnimation(prev => prev.map(a => {
+                if (a === anim) {
+                  return {
+                    ...a,
+                    state: 'returning' as const,
+                    start: Date.now(),
+                    end: Date.now() + 3000,
+                    progress: 0,
+                    targetY: a.startY || 0,
+                    startY: (animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT
+                  };
+                }
+                return a;
+              }));
+            }
+          }
+        }
+      });
+    };
+
+    const raf = requestAnimationFrame(checkCollisions);
+    return () => cancelAnimationFrame(raf);
+  }, [wordAnimation, shipPosition, isShipExploding, hasCollided]);
+
+  // Update the animation frame effect to remove collision detection
   useEffect(() => {
     if (wordAnimation.length === 0 && missiles.length === 0) return;
     
@@ -552,6 +620,11 @@ export const ChatInterface = () => {
               // Trigger explosion animation for the word
               setExplodingWords(prev => new Set([...prev, wordId]));
               
+              // Update score only if the word hasn't been hit before
+              if (!streamingHitWordIds.has(wordId)) {
+                setScore(prev => prev + 10 / 2 ); // divide by 2 to account for this effect running twice
+              }
+              
               // Update hitWords for the current message
               setMessages(prev => {
                 const newMessages = [...prev];
@@ -594,7 +667,7 @@ export const ChatInterface = () => {
             
             // Calculate y position based on start position and progress
             const startY = anim.startY || 0;
-            const endY = (animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT; // Bottom of container + offset
+            const endY = (animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT;
             const currentY = startY + (endY - startY) * attackProgress;
             
             // Check for collision with missiles
@@ -604,7 +677,7 @@ export const ChatInterface = () => {
               
               // More accurate hit detection with emoji support
               const isEmoji = /[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]/u.test(anim.word);
-              const wordWidth = isEmoji ? 24 : anim.word.length * 10; // Approximate width for emojis
+              const wordWidth = isEmoji ? 24 : anim.word.length * 10;
               const wordLeft = currentX;
               const wordRight = currentX + wordWidth;
               
@@ -650,35 +723,6 @@ export const ChatInterface = () => {
               };
             }
             
-            // Check for collision with spaceship when word reaches bottom
-            if (attackProgress >= 1 && !isShipExploding) {
-              const shipX = shipPosition + 17; //39 // Center of ship
-              const tolerance = 50; // Ship width
-              
-              if (Math.abs(currentX - shipX) < tolerance) {
-                console.log('Collision detected!');
-                setIsShipExploding(true);
-                setAttackingWords(prev => {
-                  const newSet = new Set(prev);
-                  if (anim.wordId) {
-                    newSet.delete(anim.wordId);
-                  }
-                  return newSet;
-                });
-                return { ...anim, progress: 1 };
-              } else {
-                return { 
-                  ...anim, 
-                  state: 'returning' as const, 
-                  start: now, 
-                  end: now + 3000,
-                  progress: 0,
-                  targetY: startY,
-                  startY: currentY // Store the starting Y position
-                };
-              }
-            }
-            
             return { ...anim, progress: attackProgress, x: currentX };
           } else if (anim.state === 'returning') {
             const returnProgress = Math.min((now - anim.start) / 3000, 1);
@@ -695,7 +739,7 @@ export const ChatInterface = () => {
               
               // More accurate hit detection with emoji support
               const isEmoji = /[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]/u.test(anim.word);
-              const wordWidth = isEmoji ? 24 : anim.word.length * 10; // Approximate width for emojis
+              const wordWidth = isEmoji ? 24 : anim.word.length * 10;
               const wordLeft = anim.x;
               const wordRight = anim.x + wordWidth;
               
@@ -756,7 +800,7 @@ export const ChatInterface = () => {
             return { 
               ...anim, 
               progress: returnProgress,
-              y: currentY // Update the Y position
+              y: currentY
             };
           } else if (anim.state === 'exploding') {
             const explodeProgress = Math.min((now - anim.start) / 500, 1);
@@ -782,7 +826,7 @@ export const ChatInterface = () => {
     return () => {
       cancelAnimationFrame(raf);
     };
-  }, [wordAnimation, missiles, isShipExploding, shipPosition, displayedWordPositions, messages, animationContainerRef.current?.clientHeight]);
+  }, [wordAnimation, missiles, displayedWordPositions, messages, streamingHitWordIds]);
 
   // Add effect to set initial cursor position and selection
   useEffect(() => {
@@ -799,7 +843,7 @@ export const ChatInterface = () => {
         className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" 
         style={{ minHeight: 0 }}
         onMouseDown={(e) => {
-          if (isShipExploding) return;
+          if (isShipExploding || gameOver) return;
           
           // Don't shoot if clicking on links or buttons
           const target = e.target as HTMLElement;
@@ -813,7 +857,7 @@ export const ChatInterface = () => {
         onMouseUp={stopFiring}
         onMouseLeave={stopFiring}
         onTouchStart={(e) => {
-          if (isShipExploding) return;
+          if (isShipExploding || gameOver) return;
           
           // Don't shoot if touching links or buttons
           const target = e.target as HTMLElement;
@@ -848,6 +892,116 @@ export const ChatInterface = () => {
           }
         }}
       >
+        {/* Score and Lives Display */}
+        <div className="absolute top-2 right-2 flex items-center gap-4 z-50">
+          <div className="flex items-center gap-2">
+            <span className="text-xl font-bold">SCORE: {score}</span>
+          </div>
+          <div className="flex items-center gap-2">
+            {[...Array(lives)].map((_, i) => (
+              <div key={i} className="w-6 h-6">
+                <Spaceship
+                  isMoving={false}
+                  position={0}
+                  isExploding={false}
+                  style={{
+                    transform: 'scale(0.5)',
+                    position: 'relative',
+                    left: 0,
+                    top: 0
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+        
+        {/* Game Over Modal */}
+        {gameOver && (
+          <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
+            <div className="bg-black border-2 border-green-400 p-8 rounded-lg text-center">
+              <h2 className="text-2xl font-bold mb-4">GAME OVER</h2>
+              <p className="text-xl mb-4">Final Score: {score}</p>
+              {!submittingScore ? (
+                <div className="flex flex-col items-center gap-4">
+                  <input
+                    type="text"
+                    maxLength={3}
+                    value={initials}
+                    onChange={(e) => setInitials(e.target.value.toUpperCase())}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && initials.length === 3) {
+                        e.preventDefault();
+                        const submitButton = e.currentTarget.nextElementSibling as HTMLButtonElement;
+                        if (submitButton) {
+                          submitButton.click();
+                        }
+                      }
+                    }}
+                    placeholder="Enter your initials"
+                    className="bg-black border-2 border-green-400 p-2 text-center uppercase"
+                  />
+                  <button
+                    onClick={async () => {
+                      if (initials.length !== 3) return;
+                      setSubmittingScore(true);
+                      try {
+                        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/leaderboard`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ initials, score })
+                        });
+                        if (!response.ok) throw new Error('Failed to submit score');
+                        const data = await response.json();
+                        setLeaderboard(data);
+                        console.log('Leaderboard response:', data);
+                      } catch (error) {
+                        console.error('Error submitting score:', error);
+                      }
+                    }}
+                    disabled={initials.length !== 3}
+                    className="px-4 py-2 bg-green-400 text-black font-bold rounded hover:bg-green-500 disabled:opacity-50"
+                  >
+                    Submit Score
+                  </button>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center gap-4">
+                  <h3 className="text-xl font-bold mb-2">Leaderboard</h3>
+                  <div className="w-64">
+                    {leaderboard.map((entry, i) => (
+                      <div 
+                        key={i} 
+                        className={`flex justify-between mb-2 ${
+                          entry.initials === initials && entry.score === score 
+                            ? 'text-yellow-400 font-bold' 
+                            : ''
+                        }`}
+                      >
+                        <span className="w-8 text-left">{entry.rank}</span>
+                        <span className="w-16 text-center">{entry.initials}</span>
+                        <span className="w-16 text-right">{entry.score}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <button
+                    onClick={() => {
+                      setGameOver(false);
+                      setScore(0);
+                      setLives(3);
+                      setSubmittingScore(false);
+                      setInitials('');
+                    }}
+                    className="px-4 py-2 bg-green-400 text-black font-bold rounded hover:bg-green-500"
+                  >
+                    Play Again
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        
         <div className="flex-1 overflow-y-auto" ref={animationContainerRef}>
           {messages.map((message, index) => (
             <div

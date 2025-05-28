@@ -7,9 +7,13 @@ from pydantic import BaseModel
 # Import OpenAI client for interacting with OpenAI's API
 from openai import OpenAI
 import os
-from typing import Optional
+from typing import Optional, List
 import logging
 from dotenv import load_dotenv
+from supabase import create_client, Client
+from datetime import datetime
+import json
+
 load_dotenv()
 
 # Set up logging
@@ -29,6 +33,12 @@ app.add_middleware(
     allow_headers=["*"],  # Allows all headers in requests
 )
 
+# Initialize Supabase client
+supabase: Client = create_client(
+    os.getenv('SUPABASE_URL', ''),
+    os.getenv('SUPABASE_KEY', '')
+)
+
 # Define the data model for chat requests using Pydantic
 # This ensures incoming request data is properly validated
 class ChatRequest(BaseModel):
@@ -36,6 +46,46 @@ class ChatRequest(BaseModel):
     user_message: str      # Message from the user
     model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
     message_history: Optional[list[dict[str, str]]] = []  # Full chat history
+
+# Define the data model for leaderboard entries
+class LeaderboardEntry(BaseModel):
+    initials: str
+    score: int
+
+# Define the leaderboard endpoint
+@app.post("/api/leaderboard")
+async def submit_score(entry: LeaderboardEntry):
+    try:
+        # Insert the new score
+        supabase.table('leaderboard').insert({
+            'initials': entry.initials,
+            'score': entry.score,
+            'created_at': datetime.now().isoformat()
+        }).execute()
+        
+        # Get scores with ranks and filter for entries around the current submission
+        window_size = 3        
+        try:
+            # Call the database function directly
+            result = supabase.rpc('get_leaderboard_window', {
+                'p_initials': entry.initials,
+                'p_score': entry.score,
+                'p_window_size': window_size
+            }).execute()
+                        
+            if not result.data:
+                logger.warning("No data returned from leaderboard query")
+                return []
+                
+            return result.data
+            
+        except Exception as e:
+            logger.error(f"Error executing query: {str(e)}", exc_info=True)
+            raise HTTPException(status_code=500, detail=str(e))
+        
+    except Exception as e:
+        logger.error(f"Error submitting score: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
