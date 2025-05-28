@@ -167,39 +167,50 @@ export const ChatInterface = () => {
     scrollToBottom();
   }, [messages, displayedAssistantMessage, input]);
 
-  // Handle click anywhere in chat window to focus input
-  useEffect(() => {
-    const handleClick = (e: MouseEvent) => {
-      if (animationContainerRef.current) {
-        const target = e.target as HTMLElement;
-        // Don't focus if clicking on a link or button
-        if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
-        
-        // Only handle input focus if clicking on the input container
-        if (inputContainerRef.current?.contains(target)) {
-          if (inputRef.current) {
-            inputRef.current.focus();
-            const rect = inputContainerRef.current.getBoundingClientRect();
-            const x = e.clientX - rect.left;
-            // Approximate character position based on average character width
-            const charWidth = 8; // Approximate width of a character in pixels
-            const position = Math.round(x / charWidth);
-            setCursorPosition(Math.min(position, input.length));
-            inputRef.current.setSelectionRange(position, position);
-          }
-        }
-      }
-    };
-
-    window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
-  }, [input.length]);
-
   // Focus input on initial load and when messages change
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.focus();
     }
+  }, []);
+
+  // Keep input focused at all times
+  useEffect(() => {
+    const handleWindowClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Don't refocus if clicking on a link or button
+      if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
+      
+      // Don't refocus if clicking on a word
+      if (target.classList.contains('word')) return;
+
+      // Refocus the input
+      if (inputRef.current) {
+        inputRef.current.focus();
+      }
+    };
+
+    const handleBlur = () => {
+      // Small delay to ensure other click handlers have run
+      setTimeout(() => {
+        if (inputRef.current) {
+          inputRef.current.focus();
+        }
+      }, 0);
+    };
+
+    window.addEventListener('click', handleWindowClick);
+    const inputElement = inputRef.current;
+    if (inputElement) {
+      inputElement.addEventListener('blur', handleBlur);
+    }
+
+    return () => {
+      window.removeEventListener('click', handleWindowClick);
+      if (inputElement) {
+        inputElement.removeEventListener('blur', handleBlur);
+      }
+    };
   }, []);
 
   // Handle input changes and cursor position
