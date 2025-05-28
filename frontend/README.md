@@ -9,12 +9,27 @@ A retro-style chat interface built with Next.js that connects to an OpenAI-power
 npm install
 ```
 
-2. Run the development server:
+2. Set up environment variables:
+
+For local development, create a `.env.local` file in the frontend directory:
+```bash
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+For Vercel deployment, add the environment variable:
+```bash
+vercel env add NEXT_PUBLIC_API_URL
+```
+When prompted, enter: `https://${VERCEL_URL}`
+
+This will automatically use your Vercel deployment URL for the API endpoint.
+
+3. Run the development server:
 ```bash
 npm run dev
 ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser
+4. Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ## 🎮 Features
 
