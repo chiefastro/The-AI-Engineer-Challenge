@@ -103,7 +103,7 @@ const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: {
 
 export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState('print me 100 purple galaga space emojis with no other text');
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
@@ -114,7 +114,7 @@ export const ChatInterface = () => {
   const currentShipPositionRef = useRef(400);
   const [isShipMoving, setIsShipMoving] = useState(false);
   const [showCursor, setShowCursor] = useState(true);
-  const [cursorPosition, setCursorPosition] = useState(0);
+  const [cursorPosition, setCursorPosition] = useState(57);
   const inputContainerRef = useRef<HTMLDivElement>(null);
   const [isShipExploding, setIsShipExploding] = useState(false);
   const attackIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -436,7 +436,7 @@ export const ChatInterface = () => {
         attackIntervalRef.current = null;
       }
     };
-  }, [messages, attackingWords]);
+  }, [messages, attackingWords, displayedWordPositions]);
 
   // Reset ship explosion after animation
   useEffect(() => {
@@ -747,6 +747,15 @@ export const ChatInterface = () => {
       cancelAnimationFrame(raf);
     };
   }, [wordAnimation, missiles, isShipExploding, shipPosition, displayedWordPositions, messages, animationContainerRef.current?.clientHeight]);
+
+  // Add effect to set initial cursor position and selection
+  useEffect(() => {
+    if (inputRef.current) {
+      const length = inputRef.current.value.length;
+      inputRef.current.setSelectionRange(length, length);
+      setCursorPosition(length);
+    }
+  }, []);
 
   return (
     <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
