@@ -38,7 +38,8 @@ interface Missile {
   progress: number;
 }
 
-const SPACESHIP_AREA_HEIGHT = 60; // Height of the spaceship area in pixels
+const SPACESHIP_AREA_HEIGHT = 80; // Height of the spaceship area in pixels
+const ANIMATION_DURATION = 3000; // Duration of the animation in milliseconds
 
 // Add this new component for rendering messages with attacking words
 const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: { 
@@ -428,7 +429,7 @@ export const ChatInterface = () => {
             setWordAnimation(prev => [...prev, {
               word: randomInstance.word,
               start: Date.now(),
-              end: Date.now() + 2000, // Slower animation (2 seconds)
+              end: Date.now() + ANIMATION_DURATION, // Slower animation (3 seconds)
               progress: 0,
               x: startX,
               state: 'attacking' as const,
@@ -521,7 +522,7 @@ export const ChatInterface = () => {
     const checkCollisions = () => {
       wordAnimation.forEach(anim => {
         if (anim.state === 'attacking') {
-          const attackProgress = Math.min((Date.now() - anim.start) / 2000, 1);
+          const attackProgress = Math.min((Date.now() - anim.start) / ANIMATION_DURATION, 1);
           
           if (attackProgress >= 1) {
             const shipX = shipPosition + 17;
@@ -556,7 +557,7 @@ export const ChatInterface = () => {
                     ...a,
                     state: 'returning' as const,
                     start: Date.now(),
-                    end: Date.now() + 3000,
+                    end: Date.now() + ANIMATION_DURATION,
                     progress: 0,
                     targetY: a.startY || 0,
                     startY: (animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT
@@ -662,7 +663,7 @@ export const ChatInterface = () => {
           
           if (anim.state === 'attacking') {
             // Calculate position for attacking animation
-            const attackProgress = Math.min((now - anim.start) / 2000, 1);
+            const attackProgress = Math.min((now - anim.start) / ANIMATION_DURATION, 1);
             const currentX = anim.x;
             
             // Calculate y position based on start position and progress
@@ -725,7 +726,7 @@ export const ChatInterface = () => {
             
             return { ...anim, progress: attackProgress, x: currentX };
           } else if (anim.state === 'returning') {
-            const returnProgress = Math.min((now - anim.start) / 3000, 1);
+            const returnProgress = Math.min((now - anim.start) / ANIMATION_DURATION, 1);
             
             // Calculate current Y position based on progress
             const startY = anim.startY ?? ((animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT);
@@ -918,8 +919,43 @@ export const ChatInterface = () => {
         
         {/* Game Over Modal */}
         {gameOver && (
-          <div className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50">
-            <div className="bg-black border-2 border-green-400 p-8 rounded-lg text-center">
+          <div 
+            className="absolute inset-0 bg-black bg-opacity-80 flex items-center justify-center z-50"
+            onClick={(e) => {
+              // Only close if clicking the backdrop, not the modal content
+              if (e.target === e.currentTarget && !submittingScore) {
+                setGameOver(false);
+                setScore(0);
+                setLives(3);
+                setSubmittingScore(false);
+                setInitials('');
+              }
+            }}
+          >
+            <div className="bg-black border-2 border-green-400 p-8 rounded-lg text-center relative">
+              {!submittingScore && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setGameOver(false);
+                    setScore(0);
+                    setLives(3);
+                    setSubmittingScore(false);
+                    setInitials('');
+                  }}
+                  className="absolute top-2 right-2 text-green-400 hover:text-green-300 text-xl font-bold"
+                  style={{
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
+                    MozUserSelect: 'none',
+                    msUserSelect: 'none',
+                    WebkitTouchCallout: 'none',
+                    WebkitTapHighlightColor: 'transparent'
+                  }}
+                >
+                  ×
+                </button>
+              )}
               <h2 className="text-2xl font-bold mb-4">GAME OVER</h2>
               <p className="text-xl mb-4">Final Score: {score}</p>
               {!submittingScore ? (
@@ -1002,7 +1038,7 @@ export const ChatInterface = () => {
           </div>
         )}
         
-        <div className="flex-1 overflow-y-auto" ref={animationContainerRef}>
+        <div className="flex-1 overflow-y-auto pb-8" ref={animationContainerRef}>
           {messages.map((message, index) => (
             <div
               key={index}
