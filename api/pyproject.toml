@@ -1,7 +1,7 @@
 [project]
-name = "beyond-chatgpt"
+name = "beyond_chatgpt"
 version = "0.1.0"
-description = "gpt-like-a-dev"
+description = "A FastAPI-based backend service that provides a streaming chat interface using OpenAI's API"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -10,4 +10,12 @@ dependencies = [
     "openai",
     "pydantic>=2.11.4",
     "uvicorn>=0.34.2",
+    "python-dotenv"
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["."]

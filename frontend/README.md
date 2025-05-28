@@ -9,28 +9,25 @@ A retro-style chat interface built with Next.js that connects to an OpenAI-power
 npm install
 ```
 
-2. Create a `.env.local` file in the root directory with your OpenAI API key:
-```
-NEXT_PUBLIC_OPENAI_API_KEY=your_api_key_here
-```
-
-3. Run the development server:
+2. Run the development server:
 ```bash
 npm run dev
 ```
 
-4. Open [http://localhost:3000](http://localhost:3000) in your browser
+3. Open [http://localhost:3000](http://localhost:3000) in your browser
 
 ## 🎮 Features
 
 - Retro Galaga-inspired chat interface
-- Animated spaceship that moves as tokens stream in
+- Animated spaceship that can shoot words as they attack
 - Real-time token streaming from OpenAI
 - Responsive design that works on all devices
 
 ## 🚀 Deployment
 
 This project is configured for easy deployment to Vercel. Simply connect your GitHub repository to Vercel and it will automatically deploy your changes!
+
+> **Note**: Make sure to configure the `OPENAI_API_KEY` environment variable in your Vercel project settings. See the backend README for detailed instructions.
 
 ## Learn More
 

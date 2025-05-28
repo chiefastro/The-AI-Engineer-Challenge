@@ -21,6 +21,15 @@ source venv/bin/activate  # On Windows, use: venv\Scripts\activate
 pip install fastapi uvicorn openai pydantic
 ```
 
+3. Set up your OpenAI API key as an environment variable:
+```bash
+# On Unix/Linux/MacOS
+export OPENAI_API_KEY=your-api-key-here
+
+# On Windows
+set OPENAI_API_KEY=your-api-key-here
+```
+
 ## Running the Server
 
 1. Make sure you're in the `api` directory:
@@ -46,7 +55,7 @@ The server will start on `http://localhost:8000`
     "developer_message": "string",
     "user_message": "string",
     "model": "gpt-4.1-mini",  // optional
-    "api_key": "your-openai-api-key"
+    "message_history": []  // optional
 }
 ```
 - **Response**: Streaming text response
@@ -74,3 +83,23 @@ The API includes basic error handling for:
 - General server errors
 
 All errors will return a 500 status code with an error message. 
+
+## Vercel Deployment
+
+When deploying to Vercel, you'll need to configure the environment variables:
+
+1. Go to your project on [Vercel Dashboard](https://vercel.com)
+2. Click on "Settings"
+3. Click on "Environment Variables" in the left sidebar
+4. Add a new environment variable:
+   - Name: `OPENAI_API_KEY`
+   - Value: Your OpenAI API key
+   - Environment: Production (and optionally Preview/Development)
+5. Click "Save"
+
+Alternatively, you can use the Vercel CLI:
+```bash
+vercel env add OPENAI_API_KEY
+```
+
+After adding the environment variable, redeploy your application for the changes to take effect. 

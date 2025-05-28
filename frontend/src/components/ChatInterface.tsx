@@ -227,15 +227,6 @@ export const ChatInterface = () => {
       e.preventDefault();
       if (!input.trim()) return;
 
-      const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
-      if (!apiKey) {
-        setMessages(prev => [...prev, {
-          role: 'assistant',
-          content: 'Error: OpenAI API key is not configured. Please add NEXT_PUBLIC_OPENAI_API_KEY to your .env.local file.'
-        }]);
-        return;
-      }
-
       const userMessage = input.trim();
       setInput('');
       setCursorPosition(0); // Reset cursor position when sending message
@@ -251,7 +242,6 @@ export const ChatInterface = () => {
       const requestBody = {
         user_message: userMessage,
         developer_message: "The user is playing a Galaga game where they get to shoot down the words that you send to them.",
-        api_key: apiKey,
         message_history: messages.map(msg => ({
           role: msg.role,
           content: msg.content
