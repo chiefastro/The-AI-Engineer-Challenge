@@ -39,12 +39,15 @@ const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: {
   hitWordIds?: Set<string>,
   messageIndex: number 
 }) => {
-  const words = content.split(/\s+/);
+  // Split content into words and emojis using a more robust regex
+  const words = content.match(/[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]|[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*|[.,!?;:]/gu) || [];
   
   const elements = words.map((word, i) => {
     const wordId = `${messageIndex}-${i}-${word}`;
     const isAttacking = attackingWords.has(wordId);
     const isHit = hitWordIds?.has(wordId) || false;
+    const isEmoji = /[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]/u.test(word);
+    const isNumber = /^\d+$/.test(word);
     
     return (
       <span 
@@ -52,13 +55,20 @@ const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: {
         data-word-id={wordId}
         className={`word ${isAttacking ? 'attacking' : ''} ${isHit ? 'hit' : ''}`}
         style={{ 
-          color: isAttacking ? 'black' : isHit ? 'black' : 'inherit',
+          color: isEmoji ? 'inherit' : (isAttacking ? 'black' : isHit ? 'black' : 'inherit'),
+          opacity: (isEmoji || isNumber) && (isAttacking || isHit) ? 0 : 1,
           display: 'inline-block',
           userSelect: 'none',
           WebkitUserSelect: 'none',
           MozUserSelect: 'none',
           msUserSelect: 'none',
-          pointerEvents: 'none'
+          pointerEvents: 'none',
+          // Add specific styling for emojis and numbers
+          fontSize: isEmoji ? '1.2em' : 'inherit',
+          lineHeight: isEmoji ? '1' : 'inherit',
+          // Maintain exact width
+          width: isEmoji ? '1.2em' : isNumber ? '1em' : 'auto',
+          textAlign: 'center'
         }}
       >
         {word}
@@ -372,7 +382,7 @@ export const ChatInterface = () => {
           
           // Create an array of all word instances with their IDs
           const wordInstances: { word: string, id: string }[] = [];
-          const words = lastMessage.content.split(/\s+/);
+          const words = lastMessage.content.match(/[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]|[\p{L}\p{N}]+(?:['-][\p{L}\p{N}]+)*|[.,!?;:]/gu) || [];
           
           words.forEach((word, index) => {
             if (word.trim() !== '') {
@@ -413,7 +423,7 @@ export const ChatInterface = () => {
               startY: startY // Add the starting y position
             }]);
           }
-        }, 1500); // Attack every 1.5 seconds
+        }, 500); // Attack every 0.5 seconds (3x faster)
         
         attackIntervalRef.current = interval;
       }
@@ -556,8 +566,9 @@ export const ChatInterface = () => {
               const missileY = (animationContainerRef.current?.clientHeight || 0) * (1 - missile.progress);
               const missileX = missile.x;
               
-              // More accurate hit detection
-              const wordWidth = anim.word.length * 10; // Approximate based on word length
+              // More accurate hit detection with emoji support
+              const isEmoji = /[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]/u.test(anim.word);
+              const wordWidth = isEmoji ? 24 : anim.word.length * 10; // Approximate width for emojis
               const wordLeft = currentX;
               const wordRight = currentX + wordWidth;
               
@@ -646,8 +657,9 @@ export const ChatInterface = () => {
               const missileY = (animationContainerRef.current?.clientHeight || 0) * (1 - missile.progress);
               const missileX = missile.x;
               
-              // More accurate hit detection
-              const wordWidth = anim.word.length * 10; // Approximate based on word length
+              // More accurate hit detection with emoji support
+              const isEmoji = /[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]/u.test(anim.word);
+              const wordWidth = isEmoji ? 24 : anim.word.length * 10; // Approximate width for emojis
               const wordLeft = anim.x;
               const wordRight = anim.x + wordWidth;
               
@@ -813,7 +825,9 @@ export const ChatInterface = () => {
                 fontWeight: 'bold',
                 pointerEvents: 'none',
                 zIndex: 20,
-                fontSize: anim.state === 'exploding' ? `${1 + anim.progress * 1.5}em` : '1em',
+                fontSize: /[\p{Emoji}\u{1F3FB}-\u{1F3FF}\u{1F9B0}-\u{1F9B3}]/u.test(anim.word) 
+                  ? `${1.2 + (anim.state === 'exploding' ? anim.progress * 1.5 : 0)}em` 
+                  : `${1 + (anim.state === 'exploding' ? anim.progress * 1.5 : 0)}em`,
                 opacity: anim.state === 'exploding' ? 1 - anim.progress : 1,
                 color: anim.state === 'exploding' ? '#ff0000' : 'inherit',
                 transform: anim.state === 'exploding' 
