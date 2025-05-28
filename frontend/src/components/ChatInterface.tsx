@@ -105,6 +105,7 @@ export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('print me 100 purple galaga space emojis with no other text');
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
+  const [streamingHitWordIds, setStreamingHitWordIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -348,8 +349,13 @@ export const ChatInterface = () => {
   useEffect(() => {
     if (streamingComplete) {
       console.log('Finalizing message:', displayedAssistantMessage);
-      setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
+      setMessages(prev => [...prev, { 
+        role: 'assistant', 
+        content: displayedAssistantMessage,
+        hitWordIds: streamingHitWordIds 
+      }]);
       setDisplayedAssistantMessage('');
+      setStreamingHitWordIds(new Set());
       setIsShipMoving(false);
       setStreamingComplete(false);
       
@@ -500,7 +506,7 @@ export const ChatInterface = () => {
             if (messageMatch) {
               const messageIndex = parseInt(messageMatch[1]);
               const message = messages[messageIndex];
-              if (message?.hitWordIds?.has(wordId)) {
+              if (message?.hitWordIds?.has(wordId) || streamingHitWordIds.has(wordId)) {
                 return; // Skip this word, it's already been hit
               }
             }
@@ -532,6 +538,11 @@ export const ChatInterface = () => {
                 }
                 return newMessages;
               });
+
+              // If it's a streaming message, add to streamingHitWordIds
+              if (messageMatch && parseInt(messageMatch[1]) === messages.length) {
+                setStreamingHitWordIds(prev => new Set([...prev, wordId]));
+              }
             }
           });
 
@@ -812,7 +823,12 @@ export const ChatInterface = () => {
             <div className="mb-4 text-green-400">
               <div className="font-bold mb-1">&gt; AI</div>
               <div className="prose prose-invert max-w-none">
-                <MessageContent content={displayedAssistantMessage} attackingWords={attackingWords} hitWordIds={new Set()} messageIndex={messages.length} />
+                <MessageContent 
+                  content={displayedAssistantMessage} 
+                  attackingWords={attackingWords} 
+                  hitWordIds={streamingHitWordIds} 
+                  messageIndex={messages.length} 
+                />
               </div>
             </div>
           )}
