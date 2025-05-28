@@ -250,8 +250,12 @@ export const ChatInterface = () => {
 
       const requestBody = {
         user_message: userMessage,
-        developer_message: "You are a helpful AI assistant.",
+        developer_message: "The user is playing a Galaga game where they get to shoot down the words that you send to them.",
         api_key: apiKey,
+        message_history: messages.map(msg => ({
+          role: msg.role,
+          content: msg.content
+        }))
       };
 
       try {
