@@ -110,7 +110,6 @@ export const ChatInterface = () => {
   const animationContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const [wordAnimation, setWordAnimation] = useState<WordAnimation[]>([]);
-  const [pendingWords, setPendingWords] = useState<string[]>([]);
   const [shipPosition, setShipPosition] = useState(400);
   const currentShipPositionRef = useRef(400);
   const [isShipMoving, setIsShipMoving] = useState(false);
@@ -126,6 +125,7 @@ export const ChatInterface = () => {
   const firingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMouseDownRef = useRef(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
+  const [streamingActive, setStreamingActive] = useState(false);
   // Update the ref whenever shipPosition changes
   useEffect(() => {
     currentShipPositionRef.current = shipPosition;
@@ -188,7 +188,7 @@ export const ChatInterface = () => {
       inputRef.current.style.height = 'auto';
       inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
     }
-  }, []);
+  }, [messages, displayedAssistantMessage]);
 
   // Keep input focused at all times
   useEffect(() => {
@@ -255,7 +255,6 @@ export const ChatInterface = () => {
       setCursorPosition(0); // Reset cursor position when sending message
       setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
       setDisplayedAssistantMessage('');
-      setPendingWords([]);
       setShipPosition(400);
       setIsShipMoving(false);
       setMissiles([]); // Clear any existing missiles
@@ -291,28 +290,19 @@ export const ChatInterface = () => {
         if (!reader) throw new Error('No reader available');
 
         const decoder = new TextDecoder();
-        // let buffer = '';
-        // let completeResponse = '';
+        setStreamingActive(true);
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
             console.log('Complete API response:', displayedAssistantMessage);
             setStreamingComplete(true);
+            setStreamingActive(false);
             break;
           }
 
           const chunk = decoder.decode(value, { stream: true });
           setDisplayedAssistantMessage(prev => prev + chunk);
-          // completeResponse += chunk;
-          // buffer += chunk;
-          
-          // const words = buffer.match(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g) || [];
-          
-          // if (words.length > 0) {
-          //   setPendingWords(prev => [...prev, ...words]);
-          //   buffer = buffer.replace(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g, '');
-          // }
         }
       } catch (error) {
         console.error('Error:', error);
@@ -457,7 +447,7 @@ export const ChatInterface = () => {
         attackIntervalRef.current = null;
       }
     };
-  }, [messages, attackingWords, displayedWordPositions]);
+  }, [messages, displayedWordPositions]);
 
   // Reset ship explosion after animation
   useEffect(() => {
@@ -784,7 +774,7 @@ export const ChatInterface = () => {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4 overflow-hidden">
+    <div className="flex flex-col h-[90vh] md:h-screen bg-black text-green-400 font-mono p-4 overflow-hidden">
       <div 
         className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" 
         style={{ minHeight: 0 }}
@@ -946,15 +936,15 @@ export const ChatInterface = () => {
           {/* Terminal input area */}
           <div className="mt-4">
             <div className="font-bold mb-1 text-blue-400">&gt; User</div>
-            <div className="relative overflow-hidden" ref={inputContainerRef}>
+            <div className="relative overflow-hidden flex items-center gap-2" ref={inputContainerRef}>
               <textarea
                 ref={inputRef}
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart || 0)}
-                className="w-full bg-transparent text-blue-400 outline-none border-none p-0 font-mono resize-none whitespace-pre-wrap break-words"
-                disabled={pendingWords.length > 0}
+                className="flex-1 bg-transparent text-blue-400 outline-none border-none p-0 font-mono resize-none whitespace-pre-wrap break-words"
+                disabled={streamingActive}
                 style={{
                   caretColor: 'transparent',
                   minHeight: '1.2em',
@@ -964,6 +954,17 @@ export const ChatInterface = () => {
                 }}
                 rows={1}
               />
+              <button
+                onClick={() => {
+                  if (!input.trim()) return;
+                  const event = { key: 'Enter', preventDefault: () => {}, shiftKey: false } as React.KeyboardEvent;
+                  handleKeyDown(event);
+                }}
+                disabled={!input.trim() || streamingActive}
+                className="px-4 py-1 bg-green-400 text-black font-bold rounded hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm h-[1.2em] leading-none flex items-center"
+              >
+                Send
+              </button>
               {showCursor && (
                 <span 
                   className="absolute top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse pointer-events-none"
