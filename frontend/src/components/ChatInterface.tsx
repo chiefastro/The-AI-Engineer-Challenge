@@ -126,6 +126,7 @@ export const ChatInterface = () => {
   const isMouseDownRef = useRef(false);
   const [streamingComplete, setStreamingComplete] = useState(false);
   const [streamingActive, setStreamingActive] = useState(false);
+
   // Update the ref whenever shipPosition changes
   useEffect(() => {
     currentShipPositionRef.current = shipPosition;
@@ -434,7 +435,7 @@ export const ChatInterface = () => {
               startY: startY // Add the starting y position
             }]);
           }
-        }, 500); // Attack every 0.5 seconds (3x faster)
+        }, 300); // Attack every 0.3 seconds (faster attacks)
         
         attackIntervalRef.current = interval;
       }
@@ -447,7 +448,25 @@ export const ChatInterface = () => {
         attackIntervalRef.current = null;
       }
     };
-  }, [messages, displayedWordPositions]);
+  }, [messages, displayedWordPositions, attackingWords]);
+
+  // Update attackingWords when animations complete
+  useEffect(() => {
+    const completedWordIds = new Set<string>();
+    wordAnimation.forEach(anim => {
+      if (anim.progress >= 1 && anim.wordId) {
+        completedWordIds.add(anim.wordId);
+      }
+    });
+    
+    if (completedWordIds.size > 0) {
+      setAttackingWords(prev => {
+        const newSet = new Set(prev);
+        completedWordIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
+    }
+  }, [wordAnimation]);
 
   // Reset ship explosion after animation
   useEffect(() => {
