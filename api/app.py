@@ -34,6 +34,7 @@ class ChatRequest(BaseModel):
     user_message: str      # Message from the user
     model: Optional[str] = "gpt-4.1-mini"  # Optional model selection with default
     api_key: str          # OpenAI API key for authentication
+    message_history: Optional[list[dict[str, str]]] = []  # Full chat history
 
 # Define the main chat endpoint that handles POST requests
 @app.post("/api/chat")
@@ -46,13 +47,22 @@ async def chat(request: ChatRequest):
         
         # Create an async generator function for streaming responses
         async def generate():
+            # Prepare messages array with history
+            messages = [
+                {"role": "developer", "content": request.developer_message}
+            ]
+            
+            # Add message history if provided
+            if request.message_history:
+                messages.extend(request.message_history)
+            
+            # Add the current user message
+            messages.append({"role": "user", "content": request.user_message})
+            
             # Create a streaming chat completion request
             stream = client.chat.completions.create(
                 model=request.model,
-                messages=[
-                    {"role": "developer", "content": request.developer_message},
-                    {"role": "user", "content": request.user_message}
-                ],
+                messages=messages,
                 stream=True  # Enable streaming response
             )
             
