@@ -108,7 +108,7 @@ export const ChatInterface = () => {
   const [streamingHitWordIds, setStreamingHitWordIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const [wordAnimation, setWordAnimation] = useState<WordAnimation[]>([]);
   const [pendingWords, setPendingWords] = useState<string[]>([]);
   const [shipPosition, setShipPosition] = useState(400);
@@ -184,11 +184,18 @@ export const ChatInterface = () => {
   useEffect(() => {
     if (inputRef.current) {
       inputRef.current.focus();
+      // Trigger initial height adjustment
+      inputRef.current.style.height = 'auto';
+      inputRef.current.style.height = inputRef.current.scrollHeight + 'px';
     }
   }, []);
 
   // Keep input focused at all times
   useEffect(() => {
+    // Only enable auto-focus on desktop devices
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    if (isMobile) return;
+
     const handleWindowClick = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       // Don't refocus if clicking on a link or button
@@ -227,9 +234,14 @@ export const ChatInterface = () => {
   }, []);
 
   // Handle input changes and cursor position
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setInput(e.target.value);
-    setCursorPosition(e.target.selectionStart || 0);
+  const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const target = e.target;
+    setInput(target.value);
+    setCursorPosition(target.selectionStart || 0);
+    
+    // Adjust height
+    target.style.height = 'auto';
+    target.style.height = target.scrollHeight + 'px';
   };
 
   // Handle key navigation
@@ -769,7 +781,7 @@ export const ChatInterface = () => {
   }, []);
 
   return (
-    <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4">
+    <div className="flex flex-col h-screen bg-black text-green-400 font-mono p-4 overflow-hidden">
       <div 
         className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" 
         style={{ minHeight: 0 }}
@@ -787,12 +799,37 @@ export const ChatInterface = () => {
         }}
         onMouseUp={stopFiring}
         onMouseLeave={stopFiring}
+        onTouchStart={(e) => {
+          if (isShipExploding) return;
+          
+          // Don't shoot if touching links or buttons
+          const target = e.target as HTMLElement;
+          if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
+          
+          // Don't shoot if touching a word
+          if (target.classList.contains('word')) return;
+
+          startFiring();
+        }}
+        onTouchEnd={stopFiring}
+        onTouchCancel={stopFiring}
         onMouseMove={(e) => {
           if (animationContainerRef.current) {
             const containerRect = animationContainerRef.current.getBoundingClientRect();
             const relativeX = e.clientX - containerRect.left;
             const minX = -24; // Allow going all the way to the left
             const maxX = containerRect.width - 24; // Full width minus ship width (78px)
+            const clampedX = Math.max(minX, Math.min(maxX, relativeX));
+            setShipPosition(clampedX);
+          }
+        }}
+        onTouchMove={(e) => {
+          if (animationContainerRef.current) {
+            const touch = e.touches[0];
+            const containerRect = animationContainerRef.current.getBoundingClientRect();
+            const relativeX = touch.clientX - containerRect.left;
+            const minX = -24;
+            const maxX = containerRect.width - 24;
             const clampedX = Math.max(minX, Math.min(maxX, relativeX));
             setShipPosition(clampedX);
           }
@@ -906,23 +943,27 @@ export const ChatInterface = () => {
           {/* Terminal input area */}
           <div className="mt-4">
             <div className="font-bold mb-1 text-blue-400">&gt; User</div>
-            <div className="relative" ref={inputContainerRef}>
-              <input
+            <div className="relative overflow-hidden" ref={inputContainerRef}>
+              <textarea
                 ref={inputRef}
-                type="text"
                 value={input}
                 onChange={handleInputChange}
                 onKeyDown={handleKeyDown}
                 onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart || 0)}
-                className="w-full bg-transparent text-blue-400 outline-none border-none p-0 font-mono"
+                className="w-full bg-transparent text-blue-400 outline-none border-none p-0 font-mono resize-none whitespace-pre-wrap break-words"
                 disabled={pendingWords.length > 0}
                 style={{
                   caretColor: 'transparent',
+                  minHeight: '1.2em',
+                  height: 'auto',
+                  overflow: 'hidden',
+                  wordBreak: 'break-word'
                 }}
+                rows={1}
               />
               {showCursor && (
                 <span 
-                  className="absolute top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse"
+                  className="absolute top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse pointer-events-none"
                   style={{ 
                     left: `${cursorPosition * 0.6}em`,
                     transform: 'translateX(-50%)'
