@@ -31,6 +31,7 @@ interface Missile {
   progress: number;
 }
 
+const SPACESHIP_AREA_HEIGHT = 60; // Height of the spaceship area in pixels
 
 // Add this new component for rendering messages with attacking words
 const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: { 
@@ -593,7 +594,7 @@ export const ChatInterface = () => {
             
             // Calculate y position based on start position and progress
             const startY = anim.startY || 0;
-            const endY = (animationContainerRef.current?.clientHeight || 0) + 80; // Bottom of container + offset
+            const endY = (animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT; // Bottom of container + offset
             const currentY = startY + (endY - startY) * attackProgress;
             
             // Check for collision with missiles
@@ -683,7 +684,7 @@ export const ChatInterface = () => {
             const returnProgress = Math.min((now - anim.start) / 3000, 1);
             
             // Calculate current Y position based on progress
-            const startY = anim.startY ?? ((animationContainerRef.current?.clientHeight || 0) + 80);
+            const startY = anim.startY ?? ((animationContainerRef.current?.clientHeight || 0) + SPACESHIP_AREA_HEIGHT);
             const targetY = anim.targetY ?? 0;
             const currentY = startY + (targetY - startY) * returnProgress;
             
@@ -889,7 +890,7 @@ export const ChatInterface = () => {
                 position: 'absolute',
                 left: `${anim.x}px`,
                 top: anim.state === 'attacking' 
-                  ? `${(anim.startY || 0) + ((animationContainerRef.current.clientHeight + 80 - (anim.startY || 0)) * anim.progress)}px`
+                  ? `${(anim.startY || 0) + ((animationContainerRef.current.clientHeight + SPACESHIP_AREA_HEIGHT - (anim.startY || 0)) * anim.progress)}px`
                   : anim.state === 'returning'
                   ? `${anim.y}px`
                   : anim.state === 'exploding'
@@ -952,60 +953,34 @@ export const ChatInterface = () => {
               </span>
             );
           })}
-          {/* Terminal input area */}
-          <div className="mt-4">
-            <div className="font-bold mb-1 text-blue-400">&gt; User</div>
-            <div className="relative overflow-hidden flex items-center gap-2" ref={inputContainerRef}>
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={handleInputChange}
-                onKeyDown={handleKeyDown}
-                onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart || 0)}
-                className="flex-1 bg-transparent text-blue-400 outline-none border-none p-0 font-mono resize-none whitespace-pre-wrap break-words"
-                disabled={streamingActive}
-                style={{
-                  caretColor: 'transparent',
-                  minHeight: '1.2em',
-                  height: 'auto',
-                  overflow: 'hidden',
-                  wordBreak: 'break-word'
-                }}
-                rows={1}
-              />
-              <button
-                onClick={() => {
-                  if (!input.trim()) return;
-                  const event = { key: 'Enter', preventDefault: () => {}, shiftKey: false } as React.KeyboardEvent;
-                  handleKeyDown(event);
-                }}
-                disabled={!input.trim() || streamingActive}
-                className="px-4 py-1 bg-green-400 text-black font-bold rounded hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm h-[1.2em] leading-none flex items-center"
-              >
-                Send
-              </button>
-              {showCursor && (
-                <span 
-                  className="absolute top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse pointer-events-none"
-                  style={{ 
-                    left: `${cursorPosition * 0.6}em`,
-                    transform: 'translateX(-50%)'
-                  }}
-                />
-              )}
-            </div>
-          </div>
         </div>
         <div ref={messagesEndRef} />
         {/* Spaceship Launchpad - moved inside the green box */}
-        <div className="relative flex items-center justify-center mt-4 w-full" style={{ height: '80px' }}>
+        <div 
+          className="relative flex items-center justify-center mt-2 w-full" 
+          style={{ 
+            height: `${SPACESHIP_AREA_HEIGHT}px`,
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            MozUserSelect: 'none',
+            msUserSelect: 'none',
+            WebkitTouchCallout: 'none',
+            WebkitTapHighlightColor: 'transparent'
+          }}
+        >
           <Spaceship
             isMoving={isShipMoving || !!wordAnimation.length}
             position={shipPosition}
             isExploding={isShipExploding}
             style={{
               transition: 'transform 0.1s ease-out',
-              transform: `translateX(${shipPosition}px)`
+              transform: `translateX(${shipPosition}px)`,
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              MozUserSelect: 'none',
+              msUserSelect: 'none',
+              WebkitTouchCallout: 'none',
+              WebkitTapHighlightColor: 'transparent'
             }}
           />
         </div>
@@ -1021,9 +996,89 @@ export const ChatInterface = () => {
               transition: 'none',
               pointerEvents: 'none',
               zIndex: 20,
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              MozUserSelect: 'none',
+              msUserSelect: 'none',
+              WebkitTouchCallout: 'none',
+              WebkitTapHighlightColor: 'transparent'
             }}
           />
         ))}
+      </div>
+      {/* Terminal input area */}
+      <div className="mt-2">
+        <div className="font-bold mb-0.5 text-blue-400">&gt; User</div>
+        <div 
+          className="relative overflow-hidden flex items-center gap-2" 
+          ref={inputContainerRef}
+          style={{
+            userSelect: 'none',
+            WebkitUserSelect: 'none',
+            MozUserSelect: 'none',
+            msUserSelect: 'none',
+            WebkitTouchCallout: 'none',
+            WebkitTapHighlightColor: 'transparent'
+          }}
+        >
+          <textarea
+            ref={inputRef}
+            value={input}
+            onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
+            onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart || 0)}
+            className="flex-1 bg-transparent text-blue-400 outline-none border-none p-0 font-mono resize-none whitespace-pre-wrap break-words"
+            disabled={streamingActive}
+            style={{
+              caretColor: 'transparent',
+              minHeight: '1.2em',
+              height: 'auto',
+              overflow: 'hidden',
+              wordBreak: 'break-word',
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              MozUserSelect: 'none',
+              msUserSelect: 'none',
+              WebkitTouchCallout: 'none',
+              WebkitTapHighlightColor: 'transparent'
+            }}
+            rows={1}
+          />
+          <button
+            onClick={() => {
+              if (!input.trim()) return;
+              const event = { key: 'Enter', preventDefault: () => {}, shiftKey: false } as React.KeyboardEvent;
+              handleKeyDown(event);
+            }}
+            disabled={!input.trim() || streamingActive}
+            className="px-3 py-0.5 bg-green-400 text-black font-bold rounded hover:bg-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm h-[1.2em] leading-none flex items-center"
+            style={{
+              userSelect: 'none',
+              WebkitUserSelect: 'none',
+              MozUserSelect: 'none',
+              msUserSelect: 'none',
+              WebkitTouchCallout: 'none',
+              WebkitTapHighlightColor: 'transparent'
+            }}
+          >
+            Send
+          </button>
+          {showCursor && (
+            <span 
+              className="absolute top-0 w-[2px] h-[1.2em] bg-blue-400 animate-pulse pointer-events-none"
+              style={{ 
+                left: `${cursorPosition * 0.6}em`,
+                transform: 'translateX(-50%)',
+                userSelect: 'none',
+                WebkitUserSelect: 'none',
+                MozUserSelect: 'none',
+                msUserSelect: 'none',
+                WebkitTouchCallout: 'none',
+                WebkitTapHighlightColor: 'transparent'
+              }}
+            />
+          )}
+        </div>
       </div>
     </div>
   );
