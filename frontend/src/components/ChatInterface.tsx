@@ -92,7 +92,6 @@ const MessageContent = ({ content, attackingWords, hitWordIds, messageIndex }: {
 export const ChatInterface = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
   const [displayedAssistantMessage, setDisplayedAssistantMessage] = useState<string>('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const animationContainerRef = useRef<HTMLDivElement>(null);
@@ -102,7 +101,6 @@ export const ChatInterface = () => {
   const [shipPosition, setShipPosition] = useState(400);
   const currentShipPositionRef = useRef(400);
   const [isShipMoving, setIsShipMoving] = useState(false);
-  const [completedWords, setCompletedWords] = useState<Set<string>>(new Set());
   const [showCursor, setShowCursor] = useState(true);
   const [cursorPosition, setCursorPosition] = useState(0);
   const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -114,7 +112,7 @@ export const ChatInterface = () => {
   const [displayedWordPositions, setDisplayedWordPositions] = useState<Map<string, { x: number, y: number, width: number, word: string }>>(new Map());
   const firingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const isMouseDownRef = useRef(false);
-
+  const [streamingComplete, setStreamingComplete] = useState(false);
   // Update the ref whenever shipPosition changes
   useEffect(() => {
     currentShipPositionRef.current = shipPosition;
@@ -142,11 +140,11 @@ export const ChatInterface = () => {
     };
 
     // Only add mousemove listener if we're not in a loading or exploding state
-    if (!isLoading && !isShipExploding) {
+    if (!isShipExploding) {
       window.addEventListener('mousemove', handleMouseMove);
     }
     return () => window.removeEventListener('mousemove', handleMouseMove);
-  }, [isLoading, isShipExploding]);
+  }, [isShipExploding]);
 
   useEffect(() => {
     const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
@@ -167,12 +165,12 @@ export const ChatInterface = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages, displayedAssistantMessage, isLoading, input]);
+  }, [messages, displayedAssistantMessage, input]);
 
   // Handle click anywhere in chat window to focus input
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
-      if (animationContainerRef.current && !isLoading) {
+      if (animationContainerRef.current) {
         const target = e.target as HTMLElement;
         // Don't focus if clicking on a link or button
         if (target.tagName === 'A' || target.tagName === 'BUTTON') return;
@@ -195,14 +193,14 @@ export const ChatInterface = () => {
 
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
-  }, [isLoading, input.length]);
+  }, [input.length]);
 
   // Focus input on initial load and when messages change
   useEffect(() => {
-    if (inputRef.current && !isLoading) {
+    if (inputRef.current) {
       inputRef.current.focus();
     }
-  }, [isLoading]);
+  }, []);
 
   // Handle input changes and cursor position
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -214,7 +212,7 @@ export const ChatInterface = () => {
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      if (!input.trim() || isLoading) return;
+      if (!input.trim()) return;
 
       const apiKey = process.env.NEXT_PUBLIC_OPENAI_API_KEY;
       if (!apiKey) {
@@ -229,7 +227,6 @@ export const ChatInterface = () => {
       setInput('');
       setCursorPosition(0); // Reset cursor position when sending message
       setMessages(prev => [...prev, { role: 'user', content: userMessage }]);
-      setIsLoading(true);
       setDisplayedAssistantMessage('');
       setPendingWords([]);
       setShipPosition(400);
@@ -261,83 +258,35 @@ export const ChatInterface = () => {
         if (!reader) throw new Error('No reader available');
 
         const decoder = new TextDecoder();
-        let buffer = '';
-        let completeResponse = '';
+        // let buffer = '';
+        // let completeResponse = '';
 
         while (true) {
           const { done, value } = await reader.read();
           if (done) {
-            console.log('Complete API response:', completeResponse);
+            console.log('Complete API response:', displayedAssistantMessage);
+            setStreamingComplete(true);
             break;
           }
 
           const chunk = decoder.decode(value, { stream: true });
-          completeResponse += chunk;
-          buffer += chunk;
+          setDisplayedAssistantMessage(prev => prev + chunk);
+          // completeResponse += chunk;
+          // buffer += chunk;
           
-          const words = buffer.match(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g) || [];
+          // const words = buffer.match(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g) || [];
           
-          if (words.length > 0) {
-            setPendingWords(prev => [...prev, ...words]);
-            buffer = buffer.replace(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g, '');
-          }
+          // if (words.length > 0) {
+          //   setPendingWords(prev => [...prev, ...words]);
+          //   buffer = buffer.replace(/\d+\.?\d*|\b\w+(?:['-]\w+)*\b|[.,!?;:]/g, '');
+          // }
         }
       } catch (error) {
         console.error('Error:', error);
         setMessages(prev => [...prev, { role: 'assistant', content: 'Sorry, something went wrong!' }]);
-        setIsLoading(false);
       }
     }
   };
-
-  // Process pending words when current animation completes
-  useEffect(() => {
-    if (pendingWords.length > 0 && !isShipMoving) {
-      const nextWord = pendingWords[0];
-      console.log('Processing word:', nextWord, 'Completed words:', Array.from(completedWords));
-      
-      // Start moving the ship
-      setIsShipMoving(true);
-      
-      // Wait for ship to arrive (100ms transition + 17ms buffer)
-      setTimeout(() => {
-        setIsShipMoving(false);
-        // Add word to animation using current ship position
-        console.log('Adding to animation:', nextWord);
-        // setWordAnimation(prev => [...prev, {
-        //   word: nextWord,
-        //   start: Date.now(),
-        //   end: Date.now() + 1, // Faster animation (150ms)
-        //   progress: 0,
-        //   x: shipPosition,
-        //   state: 'floating'
-        // }]);
-        
-        // Add word to message after animation duration
-        setTimeout(() => {
-          setDisplayedAssistantMessage(prev => {
-            const lastChar = prev.slice(-1);
-            const nextChar = nextWord[0];
-            
-            // Add space if:
-            // 1. Previous char is not a space
-            // 2. Next word is not punctuation
-            // 3. Previous word doesn't end with a hyphen
-            // 4. Next word doesn't start with an apostrophe
-            const needsSpace = 
-              lastChar !== ' ' && 
-              !/^[.,!?;:]$/.test(nextWord) &&
-              lastChar !== '-' &&
-              nextChar !== "'";
-              
-            return prev + (needsSpace ? ' ' : '') + nextWord;
-          });
-        }, 1); // Match the animation duration
-      }, 17);
-      
-      setPendingWords(prev => prev.slice(1));
-    }
-  }, [pendingWords, isShipMoving, shipPosition, completedWords]);
 
   // Extract missile firing logic into a separate function
   const fireMissile = () => {
@@ -380,13 +329,12 @@ export const ChatInterface = () => {
 
   // When all words are delivered, finalize the message
   useEffect(() => {
-    if (isLoading && displayedAssistantMessage && wordAnimation.length === 0 && pendingWords.length === 0) {
+    if (streamingComplete) {
       console.log('Finalizing message:', displayedAssistantMessage);
       setMessages(prev => [...prev, { role: 'assistant', content: displayedAssistantMessage }]);
-      setIsLoading(false);
       setDisplayedAssistantMessage('');
       setIsShipMoving(false);
-      setCompletedWords(new Set()); // Reset completed words
+      setStreamingComplete(false);
       
       // Clear any existing interval
       if (attackIntervalRef.current) {
@@ -394,11 +342,11 @@ export const ChatInterface = () => {
         attackIntervalRef.current = null;
       }
     }
-  }, [isLoading, displayedAssistantMessage, wordAnimation, pendingWords]);
+  }, [displayedAssistantMessage, streamingComplete]);
 
   // Start attack interval when message is complete
   useEffect(() => {
-    if (!isLoading && messages.length > 0) {
+    if (messages.length > 0) {
       // Get the last assistant message
       const lastAssistantMessage = [...messages].reverse().find(m => m.role === 'assistant')?.content;
       
@@ -409,7 +357,6 @@ export const ChatInterface = () => {
           clearInterval(attackIntervalRef.current);
         }
         
-        console.log('Starting attack interval with message:', lastAssistantMessage);
         // Start attack interval
         const interval = setInterval(() => {
           // Get the last message to check hit words
@@ -467,7 +414,7 @@ export const ChatInterface = () => {
         attackIntervalRef.current = null;
       }
     };
-  }, [isLoading, messages]);
+  }, [messages]);
 
   // Reset ship explosion after animation
   useEffect(() => {
@@ -764,7 +711,7 @@ export const ChatInterface = () => {
         className="relative flex flex-col flex-1 mb-2 border-2 border-green-400 rounded-lg p-4" 
         style={{ minHeight: 0 }}
         onMouseDown={(e) => {
-          if (isLoading || isShipExploding) return;
+          if (isShipExploding) return;
           
           // Don't shoot if clicking on links or buttons
           const target = e.target as HTMLElement;
@@ -809,7 +756,7 @@ export const ChatInterface = () => {
             </div>
           ))}
           {/* Animated assistant message in progress */}
-          {isLoading && (
+          {displayedAssistantMessage && (
             <div className="mb-4 text-green-400">
               <div className="font-bold mb-1">&gt; AI</div>
               <div className="prose prose-invert max-w-none">
@@ -896,7 +843,7 @@ export const ChatInterface = () => {
                 onKeyDown={handleKeyDown}
                 onSelect={(e) => setCursorPosition(e.currentTarget.selectionStart || 0)}
                 className="w-full bg-transparent text-blue-400 outline-none border-none p-0 font-mono"
-                disabled={isLoading}
+                disabled={pendingWords.length > 0}
                 style={{
                   caretColor: 'transparent',
                 }}
